@@ -14,6 +14,11 @@ pub struct AgentReadParams {
     pub format: ReadFormat,
     #[serde(default = "super::common::default_true")]
     pub strip_ansi: bool,
+    /// Return whatever history is available instead of refusing when the
+    /// target is mid-turn. Reading a teammate's session while it works is the
+    /// point of the flag, so a short answer beats no answer.
+    #[serde(default)]
+    pub allow_partial: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

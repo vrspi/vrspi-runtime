@@ -311,15 +311,21 @@ fn worktree_remove(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_worktree_help() {
-    eprintln!("herdr worktree commands:");
-    eprintln!("  herdr worktree list [--workspace ID | --cwd PATH] [--trust-repository]");
+    eprintln!("{name} worktree commands:", name = crate::EXECUTABLE_NAME);
     eprintln!(
-        "  herdr worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus] [--trust-repository]"
+        "  {name} worktree list [--workspace ID | --cwd PATH] [--trust-repository]",
+        name = crate::EXECUTABLE_NAME
     );
     eprintln!(
-        "  herdr worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--trust-repository]"
+        "  {name} worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus] [--trust-repository]", name = crate::EXECUTABLE_NAME
     );
-    eprintln!("  herdr worktree remove --workspace ID [--force] [--trust-repository]");
+    eprintln!(
+        "  {name} worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--trust-repository]", name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} worktree remove --workspace ID [--force] [--trust-repository]",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 fn normalize_path_arg(value: &str) -> std::io::Result<String> {

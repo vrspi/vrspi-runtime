@@ -1641,31 +1641,82 @@ fn print_plugin_response(method: Method) -> std::io::Result<i32> {
 }
 
 fn print_plugin_help() {
-    eprintln!("herdr plugin commands:");
-    eprintln!("  herdr plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]");
-    eprintln!("  herdr plugin uninstall <plugin_id|owner/repo[/subdir...]>");
-    eprintln!("  herdr plugin link <path> [--disabled]");
-    eprintln!("  herdr plugin list [--plugin ID] [--json]");
-    eprintln!("  herdr plugin config-dir <plugin_id>");
-    eprintln!("  herdr plugin unlink <plugin_id>");
-    eprintln!("  herdr plugin enable <plugin_id>");
-    eprintln!("  herdr plugin disable <plugin_id>");
-    eprintln!("  herdr plugin action <list|invoke>");
-    eprintln!("  herdr plugin log list [--plugin ID] [--limit N]");
-    eprintln!("  herdr plugin pane <open|focus|close>");
+    eprintln!("{name} plugin commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin uninstall <plugin_id|owner/repo[/subdir...]>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin link <path> [--disabled]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin list [--plugin ID] [--json]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin config-dir <plugin_id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin unlink <plugin_id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin enable <plugin_id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin disable <plugin_id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin action <list|invoke>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin log list [--plugin ID] [--limit N]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin pane <open|focus|close>",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 fn print_plugin_action_help() {
-    eprintln!("herdr plugin action commands:");
-    eprintln!("  herdr plugin action list [--plugin ID]");
-    eprintln!("  herdr plugin action invoke <action_id> [--plugin ID]");
+    eprintln!(
+        "{name} plugin action commands:",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin action list [--plugin ID]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin action invoke <action_id> [--plugin ID]",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 fn print_plugin_pane_help() {
-    eprintln!("herdr plugin pane commands:");
-    eprintln!("  herdr plugin pane open --plugin ID --entrypoint ID [--placement overlay|popup|split|tab|zoomed] [--width SIZE] [--height SIZE] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]");
-    eprintln!("  herdr plugin pane focus <pane_id>");
-    eprintln!("  herdr plugin pane close <pane_id>");
+    eprintln!(
+        "{name} plugin pane commands:",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {name} plugin pane open --plugin ID --entrypoint ID [--placement overlay|popup|split|tab|zoomed] [--width SIZE] [--height SIZE] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} plugin pane focus <pane_id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} plugin pane close <pane_id>",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 #[cfg(test)]

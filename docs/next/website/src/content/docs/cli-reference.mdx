@@ -293,6 +293,21 @@ For the pane-versus-agent model and complete orchestration examples, see [Agent 
 ```bash
 herdr agent list
 herdr agent get <target>
+herdr agent self
+herdr agent message send <target> <text> [--reply-to ID]
+herdr agent message inbox [--after SEQ] [--limit N] [--unacked]
+herdr agent message outbox [--after SEQ] [--limit N]
+herdr agent message get <id>
+herdr agent message ack <id>
+herdr agent message revoke <id>
+herdr agent message wait [--after SEQ] [--timeout MS]
+herdr agent message wait <id> [--until pending|observed|injected|acknowledged|revoked]... [--timeout MS]
+herdr agent lobby list
+herdr agent lobby connect <target>
+herdr agent lobby leave <lobby-id>
+herdr agent lobby remove <lobby-id> <member-instance-id>
+herdr agent lobby rename <lobby-id> <label>
+herdr agent lobby delete <lobby-id>
 herdr agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]
 herdr agent send-keys <target> <key> [key ...]
 herdr agent prompt <target> <text> [--wait] [--until STATUS]... [--timeout MS]
@@ -306,6 +321,31 @@ herdr agent explain --file PATH --agent LABEL [--json|--verbose]
 ```
 
 Agent targets are either a unique live agent name or the pane ID that currently hosts the agent. Terminal IDs and bare agent-kind labels are not agent targets. Agents started through `agent start` require a name; manually launched agents remain unnamed and use their pane ID.
+
+`agent self` and all `agent message` commands must run inside a managed agent
+pane because they derive the caller from `HERDR_PANE_ID`. Message reads mark
+inbound mail observed. Only the recipient can acknowledge, and only the sender
+can revoke before automatic injection or acknowledgement. Wait without an ID returns the first inbound
+message after `--after`; wait with an ID observes its state. Omitting
+`--timeout` waits indefinitely.
+
+`agent lobby connect` creates or reuses a direct lobby for the caller and
+target. A shared lobby opts both immutable agent instances into idle-only
+automatic delivery. `agent lobby list` shows lobby members and whether each
+instance is still active. The TUI also provides **Connect workspace agents** in
+the pane context menu and **agent lobbies** in the global menu.
+
+A lobby is either a **space**, scoped to one workspace and holding every agent
+in it, or a **direct** lobby created ad hoc between two agents. `agent lobby
+leave` removes the caller. `rename`, `remove`, and `delete` require the lobby
+owner, which is the member that created it; anyone else is refused with
+`lobby_not_owner`. In the TUI, `x` leaves the selected lobby and `D` deletes it.
+
+`agent message inbox` and `outbox` return at most 100 messages. The response
+carries `has_more` and `next_after_sequence`: when `has_more` is true, pass
+`next_after_sequence` back as `--after` to fetch the next page. Paging never
+marks a message beyond the current page as observed, so continuing a listing
+cannot suppress a later automatic delivery.
 
 `agent start` activates an existing available shell pane: the pane's interactive shell must own the foreground, with no foreground command, editor, or agent running. Topology must be created separately. Names are unique among live agents and must match `[a-z][a-z0-9_-]{0,31}`. The kind selects Herdr's canonical interactive executable, while arguments after `--` are passed to that executable. Supported kinds are `pi`, `claude`, `codex`, `gemini`, `cursor`, `devin`, `agy`, `cline`, `omp`, `mastracode`, `opencode`, `copilot`, `kimi`, `kiro`, `droid`, `amp`, `grok`, `hermes`, `kilo`, `qodercli`, `qwen`, `maki`, and `muse`. A name follows the current pane occupant and is cleared when that agent exits, is released, or is replaced. Temporary detection uncertainty does not clear it.
 
@@ -485,15 +525,20 @@ These meanings apply to reads. For `pane wait-output` only, both `recent` and `r
 
 ## Environment variables
 
+Vrspi reads the `VRSPI_*` spelling first and falls back to the historical
+`HERDR_*` name, so existing sessions, integrations, and scripts keep working.
+Set the `VRSPI_*` form in new automation; when both are present the `VRSPI_*`
+value wins.
+
 | Variable | Purpose |
 | --- | --- |
-| `HERDR_CONFIG_PATH` | Override the config file path. |
-| `HERDR_SESSION` | Select a named session for CLI commands. |
-| `HERDR_SOCKET_PATH` | Low-level socket path override. |
+| `VRSPI_CONFIG_PATH` (`HERDR_CONFIG_PATH`) | Override the config file path. |
+| `VRSPI_SESSION` (`HERDR_SESSION`) | Select a named session for CLI commands. |
+| `VRSPI_SOCKET_PATH` (`HERDR_SOCKET_PATH`) | Low-level socket path override. |
 | `HERDR_PROCESS_DETECTION` | Linux process detection strategy: `native` (default) or opt-in `child-groups`. |
-| `HERDR_ENV` | Set to `1` inside Herdr-managed pane processes. |
-| `HERDR_PANE_ID` | Public pane id for the running pane process. |
-| `HERDR_TAB_ID` | Public tab id for the running pane process. |
-| `HERDR_WORKSPACE_ID` | Public workspace id for the running pane process. |
-| `HERDR_LOG` | Set log filter, for example `HERDR_LOG=herdr=debug`. |
+| `VRSPI_ENV` (`HERDR_ENV`) | Set to `1` inside Herdr-managed pane processes. |
+| `VRSPI_PANE_ID` (`HERDR_PANE_ID`) | Public pane id for the running pane process. |
+| `VRSPI_TAB_ID` (`HERDR_TAB_ID`) | Public tab id for the running pane process. |
+| `VRSPI_WORKSPACE_ID` (`HERDR_WORKSPACE_ID`) | Public workspace id for the running pane process. |
+| `VRSPI_LOG` (`HERDR_LOG`) | Set log filter, for example `HERDR_LOG=herdr=debug`. |
 | `HERDR_DISABLE_SOUND` | Disable sound playback even when sound notifications are enabled. |

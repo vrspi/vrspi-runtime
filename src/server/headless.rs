@@ -1026,6 +1026,23 @@ impl HeadlessServer {
             crate::render_prof::event("full_render_cause.config_reload");
         }
 
+        if self.app.take_open_agent_call_request() {
+            needs_render = true;
+            crate::render_prof::event("full_render_cause.agent_call");
+        }
+
+        if std::mem::take(&mut self.app.state.request_open_room_browser) {
+            self.app.open_room_browser();
+            needs_render = true;
+            crate::render_prof::event("full_render_cause.company_rooms");
+        }
+
+        if let Some(ws_idx) = std::mem::take(&mut self.app.state.request_new_company_room) {
+            self.app.open_room_creator(ws_idx);
+            needs_render = true;
+            crate::render_prof::event("full_render_cause.company_rooms");
+        }
+
         needs_render
     }
 
@@ -1298,6 +1315,8 @@ impl HeadlessServer {
             self.app.state.sidebar_width,
             self.app.state.sidebar_section_split,
             self.app.state.collapsed_space_keys.clone(),
+            &self.app.state.collaboration,
+            &self.app.state.company,
         );
 
         let mut handoff_entries = Vec::new();
@@ -1328,6 +1347,7 @@ impl HeadlessServer {
             params.expected_protocol,
             params.expected_version,
             self.api_window_title.clone(),
+            self.app.state.collaboration.clone(),
         );
         let mut import_child = match crate::server::handoff::spawn_handoff_import(
             import_exe.as_deref(),
@@ -3360,6 +3380,11 @@ impl HeadlessServer {
             return None;
         };
         let requested = params.lines?;
+        // The caller asked for whatever is there, so a mid-turn target is not
+        // a refusal any more.
+        if params.allow_partial {
+            return None;
+        }
         if params.format != ReadFormat::Text
             || !matches!(
                 params.source,
@@ -4822,6 +4847,10 @@ impl HeadlessServer {
         }
 
         changed |= self.app.handle_tab_bar_status_tasks(now);
+        changed |= self.app.dispatch_collaboration_messages();
+        changed |= self.app.dispatch_room_deliveries();
+        changed |= self.app.refresh_open_lobby_browser();
+        changed |= self.app.refresh_open_room_browser();
 
         if geometry_dirty {
             self.app.pending_agent_resume_deadline = None;
@@ -5210,6 +5239,7 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
             &received.manifest.snapshot,
             &mut imports,
         )?;
+        app.state.collaboration = received.manifest.collaboration.clone();
         app.state.local_sound_playback = false;
         app.local_terminal_notifications = false;
         app.local_input_source_switch = false;
@@ -6585,8 +6615,26 @@ next_tab = ""
                         lines: Some(200),
                         format: api::schema::ReadFormat::Text,
                         strip_ansi: true,
+                        allow_partial: false,
                     }),
                 };
+
+                // Asking for whatever is there is answered, not refused: an
+                // agent looking at a teammate's live session cannot wait for
+                // that teammate to go idle first.
+                let permissive = api::schema::Request {
+                    id: "read".into(),
+                    method: match &request.method {
+                        api::schema::Method::AgentRead(params) => {
+                            api::schema::Method::AgentRead(api::schema::AgentReadParams {
+                                allow_partial: true,
+                                ..params.clone()
+                            })
+                        }
+                        other => other.clone(),
+                    },
+                };
+                assert!(server.agent_read_not_idle_error(&permissive).is_none());
 
                 assert_eq!(
                     server.agent_read_not_idle_error(&request),
@@ -9051,7 +9099,9 @@ next_tab = ""
         );
         assert!(!mobile_surface.contains("background"));
 
-        let foreground_terminal_area = Rect::new(26, 1, 94, 39);
+        // Studio chrome reserves two masthead rows and one footer row;
+        // this workspace also has a one-row tab bar.
+        let foreground_terminal_area = Rect::new(26, 3, 94, 36);
         let expected_pane_size = (
             foreground_terminal_area.height,
             foreground_terminal_area.width.saturating_sub(1),
@@ -10963,7 +11013,7 @@ next_tab = ""
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "herdr update".into(),
+            install_command: format!("{} update", crate::EXECUTABLE_NAME),
         });
 
         assert!(changed);
@@ -10998,7 +11048,7 @@ next_tab = ""
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "herdr update".into(),
+            install_command: format!("{} update", crate::EXECUTABLE_NAME),
         });
 
         assert!(changed);
@@ -11016,7 +11066,13 @@ next_tab = ""
                 assert_eq!(message, "v9.9.9 available");
                 assert_eq!(
                     body.as_deref(),
-                    Some("detach, run `herdr update`, then follow its restart guidance")
+                    Some(
+                        format!(
+                            "detach, run `{} update`, then follow its restart guidance",
+                            crate::EXECUTABLE_NAME
+                        )
+                        .as_str()
+                    )
                 );
             }
             other => panic!("expected system toast notify, got {other:?}"),

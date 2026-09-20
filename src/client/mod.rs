@@ -270,7 +270,8 @@ impl std::fmt::Display for ClientError {
                 let path = client_socket_path();
                 write!(
                     f,
-                    "\nIs herdr server running? Start it with `herdr server`."
+                    "\nIs {name} server running? Start it with `{name} server`.",
+                    name = crate::EXECUTABLE_NAME
                 )?;
                 write!(f, "\nSocket path: {}", path.display())
             }
@@ -3307,7 +3308,7 @@ mod tests {
             "should mention connection failure: {msg}"
         );
         assert!(
-            msg.contains("herdr server"),
+            msg.contains(&format!("{} server", crate::EXECUTABLE_NAME)),
             "should suggest starting server: {msg}"
         );
     }
@@ -3361,7 +3362,7 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `herdr` to reattach"),
+            msg.contains(&format!("Run `{}` to reattach", crate::EXECUTABLE_NAME)),
             "should suggest default reattach command: {msg}"
         );
     }
@@ -3376,7 +3377,10 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `herdr session attach work` to reattach"),
+            msg.contains(&format!(
+                "Run `{} session attach work` to reattach",
+                crate::EXECUTABLE_NAME
+            )),
             "should suggest named session reattach command: {msg}"
         );
     }
@@ -3386,7 +3390,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _remote_env = EnvVarGuard::set(
             crate::remote::REATTACH_COMMAND_ENV_VAR,
-            "herdr --remote host --session work",
+            &format!("{} --remote host --session work", crate::EXECUTABLE_NAME),
         );
         let _session_env = EnvVarGuard::set(crate::session::SESSION_ENV_VAR, "work");
         let err = ClientError::ServerShutdown {
@@ -3394,7 +3398,10 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `herdr --remote host --session work` to reattach"),
+            msg.contains(&format!(
+                "Run `{} --remote host --session work` to reattach",
+                crate::EXECUTABLE_NAME
+            )),
             "should prefer remote reattach command: {msg}"
         );
     }
@@ -3417,7 +3424,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _remote_env = EnvVarGuard::set(
             crate::remote::REATTACH_COMMAND_ENV_VAR,
-            "herdr --remote host --session work",
+            &format!("{} --remote host --session work", crate::EXECUTABLE_NAME),
         );
         let err =
             ClientError::ConnectionLost(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
@@ -3431,7 +3438,10 @@ mod tests {
             "should explain possible persistence: {msg}"
         );
         assert!(
-            msg.contains("Run `herdr --remote host --session work` to reattach"),
+            msg.contains(&format!(
+                "Run `{} --remote host --session work` to reattach",
+                crate::EXECUTABLE_NAME
+            )),
             "should show remote reattach command: {msg}"
         );
     }

@@ -10,7 +10,9 @@ use crate::app::{
 };
 
 use super::{
-    modal::{keybind_help_back, leave_modal, modal_action_from_buttons, ModalAction},
+    modal::{
+        close_agent_call, keybind_help_back, leave_modal, modal_action_from_buttons, ModalAction,
+    },
     ScrollbarClickTarget,
 };
 
@@ -20,6 +22,21 @@ fn rect_contains(rect: Rect, col: u16, row: u16) -> bool {
 
 impl App {
     pub(super) fn handle_overlay_mouse(&mut self, mouse: MouseEvent) -> bool {
+        if self.state.mode == Mode::AgentLobbies {
+            self.handle_lobby_browser_mouse(mouse);
+            return true;
+        }
+
+        if self.state.mode == Mode::CompanyRooms {
+            self.handle_room_browser_mouse(mouse);
+            return true;
+        }
+
+        if self.state.mode == Mode::AgentCall {
+            self.handle_agent_call_mouse(mouse);
+            return true;
+        }
+
         if self.state.mode == Mode::ReleaseNotes {
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left)
@@ -255,7 +272,7 @@ impl App {
 }
 
 impl AppState {
-    pub(super) fn onboarding_full_area(&self) -> Rect {
+    pub(crate) fn onboarding_full_area(&self) -> Rect {
         self.view.sidebar_rect.union(self.view.terminal_area)
     }
 
@@ -354,7 +371,9 @@ impl AppState {
     }
 
     pub(super) fn onboarding_modal_inner(&self, popup_w: u16, popup_h: u16) -> Option<Rect> {
-        let area = self.onboarding_full_area();
+        // Welcome and release overlays render against the complete frame,
+        // including the masthead and footer, unlike the collaboration browser.
+        let area = self.screen_rect();
         let popup_w = popup_w.min(area.width.saturating_sub(4));
         let popup_h = popup_h.min(area.height.saturating_sub(2));
         if popup_w < 4 || popup_h < 4 {
@@ -707,6 +726,447 @@ impl AppState {
     }
 }
 
+impl App {
+    fn handle_room_browser_mouse(&mut self, mouse: MouseEvent) {
+        let chrome = crate::ui::room_chrome(&self.state);
+        let browsing = chrome.view == crate::ui::RoomView::Browse;
+        let area = self.state.onboarding_full_area();
+        let Some(layout) = crate::ui::room_layout(area, chrome) else {
+            leave_modal(&mut self.state);
+            return;
+        };
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Right) if browsing => {
+                // Right-clicking a room offers what the button row cannot: an
+                // action destructive enough to want its own confirmation.
+                let scroll = crate::ui::room_list_scroll(
+                    &layout,
+                    self.state.room_browser.selected,
+                    self.state.room_browser.scroll,
+                );
+                if let Some(index) = crate::ui::room_row_at(
+                    &layout,
+                    scroll,
+                    self.state.room_browser.rooms.len(),
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    self.state.room_browser.selected = index;
+                    self.state.room_browser.scroll = scroll;
+                    self.state.room_browser.notice = None;
+                    self.state.room_browser.row_menu = Some(crate::app::state::RoomRowMenu {
+                        room_index: index,
+                        x: mouse.column,
+                        y: mouse.row,
+                        confirming: false,
+                    });
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                if !rect_contains(layout.popup, mouse.column, mouse.row) {
+                    leave_modal(&mut self.state);
+                    return;
+                }
+                // An open room menu takes the click before anything under it.
+                if let Some(menu) = self.state.room_browser.row_menu {
+                    let rect = crate::ui::room_menu_rect(&menu, layout.popup);
+                    if crate::ui::room_menu_item_at(rect, mouse.column, mouse.row) {
+                        self.delete_selected_room();
+                    } else {
+                        self.state.room_browser.row_menu = None;
+                        self.state.room_browser.notice = None;
+                    }
+                    return;
+                }
+                if let Some(action) =
+                    modal_action_from_buttons(mouse.column, mouse.row, &layout.buttons)
+                {
+                    self.apply_room_action(action);
+                    return;
+                }
+                match chrome.view {
+                    // While composing, clicks in the body must not switch
+                    // rooms out from under the draft.
+                    crate::ui::RoomView::Compose => {}
+                    crate::ui::RoomView::Form => {
+                        self.handle_room_form_click(&layout, mouse.column, mouse.row)
+                    }
+                    crate::ui::RoomView::Bind => {
+                        self.handle_room_bind_click(&layout, mouse.column, mouse.row)
+                    }
+                    crate::ui::RoomView::Browse => {
+                        self.handle_room_browse_click(&layout, chrome, mouse.column, mouse.row)
+                    }
+                }
+            }
+            MouseEventKind::ScrollUp if browsing => {
+                if rect_contains(layout.content, mouse.column, mouse.row) {
+                    self.scroll_room_content(1);
+                } else {
+                    self.move_room_selection(-1);
+                }
+            }
+            MouseEventKind::ScrollDown if browsing => {
+                if rect_contains(layout.content, mouse.column, mouse.row) {
+                    self.scroll_room_content(-1);
+                } else {
+                    self.move_room_selection(1);
+                }
+            }
+            MouseEventKind::ScrollUp if chrome.view == crate::ui::RoomView::Bind => {
+                self.move_room_bind_selection(-1);
+            }
+            MouseEventKind::ScrollDown if chrome.view == crate::ui::RoomView::Bind => {
+                self.move_room_bind_selection(1);
+            }
+            _ => {}
+        }
+    }
+
+    /// One place where a room button becomes a runtime action, shared by the
+    /// mouse and the keys that advertise the same buttons.
+    pub(crate) fn apply_room_action(&mut self, action: crate::ui::RoomAction) {
+        match action {
+            crate::ui::RoomAction::Post => self.open_room_composer(),
+            crate::ui::RoomAction::Send => self.submit_room_post(),
+            crate::ui::RoomAction::Cancel => self.cancel_room_overlay(),
+            crate::ui::RoomAction::Close => leave_modal(&mut self.state),
+            crate::ui::RoomAction::NewRoom => self.open_room_creator_for_selection(),
+            crate::ui::RoomAction::AddSeat => self.open_room_seat_form(),
+            crate::ui::RoomAction::Submit => self.submit_room_form(),
+            crate::ui::RoomAction::ToggleLifecycle => self.toggle_room_lifecycle(),
+        }
+    }
+
+    /// Closes whichever overlay is open, leaving the browser itself up.
+    pub(crate) fn cancel_room_overlay(&mut self) {
+        self.state.room_browser.clear_overlays();
+        self.state.room_browser.notice = None;
+    }
+
+    fn handle_room_form_click(&mut self, layout: &crate::ui::RoomLayout, col: u16, row: u16) {
+        let Some(rects) = layout.form else {
+            return;
+        };
+        if rect_contains(rects.primary, col, row) {
+            self.focus_room_form_field(crate::app::state::RoomFormField::Primary);
+        } else if rect_contains(rects.secondary, col, row) {
+            self.focus_room_form_field(crate::app::state::RoomFormField::Secondary);
+        } else if rects
+            .orchestrator
+            .is_some_and(|toggle| rect_contains(toggle, col, row))
+        {
+            self.toggle_room_form_orchestrator();
+        }
+    }
+
+    fn handle_room_bind_click(&mut self, layout: &crate::ui::RoomLayout, col: u16, row: u16) {
+        let Some((count, scroll)) = self.state.room_browser.bind.as_ref().map(|bind| {
+            (
+                bind.candidates.len(),
+                crate::ui::bind_list_scroll(layout, bind.selected, bind.scroll),
+            )
+        }) else {
+            return;
+        };
+        let Some(index) = crate::ui::bind_row_at(layout, scroll, count, col, row) else {
+            return;
+        };
+        if let Some(bind) = self.state.room_browser.bind.as_mut() {
+            bind.selected = index;
+            bind.scroll = scroll;
+        }
+        self.confirm_room_bind();
+    }
+
+    fn handle_room_browse_click(
+        &mut self,
+        layout: &crate::ui::RoomLayout,
+        chrome: crate::ui::RoomChrome,
+        col: u16,
+        row: u16,
+    ) {
+        if let Some(tab) = crate::ui::room_tab_at(layout, col, row) {
+            self.set_room_tab(tab);
+            return;
+        }
+        if chrome.members_tab && self.handle_room_member_click(layout, col, row) {
+            return;
+        }
+        if rect_contains(layout.content, col, row) {
+            match self.state.room_browser.tab {
+                crate::app::state::RoomTab::Conversation => {
+                    // Clicking a turn opens it in full; the pane shows one
+                    // line per turn otherwise, which is too little to read.
+                    if let Some(index) =
+                        crate::ui::conversation_event_at(&self.state, layout.content, row)
+                    {
+                        if let Some(event_id) = self
+                            .state
+                            .room_browser
+                            .selected_room()
+                            .and_then(|room| room.events.get(index))
+                            .map(|event| event.event_id.clone())
+                        {
+                            self.toggle_room_expanded(&event_id);
+                        }
+                        return;
+                    }
+                }
+                crate::app::state::RoomTab::Memory => {
+                    if self.handle_room_record_click(layout, col, row) {
+                        return;
+                    }
+                }
+                crate::app::state::RoomTab::Members => {}
+            }
+        }
+        let scroll = crate::ui::room_list_scroll(
+            layout,
+            self.state.room_browser.selected,
+            self.state.room_browser.scroll,
+        );
+        if let Some(index) = crate::ui::room_row_at(
+            layout,
+            scroll,
+            self.state.room_browser.rooms.len(),
+            col,
+            row,
+        ) {
+            self.state.room_browser.selected = index;
+            self.state.room_browser.scroll = scroll;
+            self.state.room_browser.content_scroll = 0;
+            self.state.room_browser.pending_remove = None;
+            self.state.room_browser.notice = None;
+        }
+    }
+
+    /// Returns whether the click landed on the memory list.
+    fn handle_room_record_click(
+        &mut self,
+        layout: &crate::ui::RoomLayout,
+        col: u16,
+        row: u16,
+    ) -> bool {
+        let Some((index, is_title, offset)) =
+            crate::ui::memory_row_at(&self.state, layout.content, row)
+        else {
+            return false;
+        };
+        let Some((record_id, accepted)) = self
+            .state
+            .room_browser
+            .selected_room()
+            .and_then(|room| room.records.get(index))
+            .map(|record| (record.record_id.clone(), record.accepted))
+        else {
+            return false;
+        };
+        if is_title {
+            let confirming = self.state.room_browser.pending_remove.as_deref() == Some(&record_id);
+            for (rect, action, _) in
+                crate::ui::record_action_rects(layout.content, offset, accepted, confirming)
+            {
+                if col >= rect.x && col < rect.right() && row == rect.y {
+                    match action {
+                        crate::ui::RoomRecordAction::Accept => self.accept_room_record(index),
+                        crate::ui::RoomRecordAction::Delete => self.delete_room_record(index),
+                    }
+                    return true;
+                }
+            }
+        }
+        // Anywhere else on the record opens it in full, so the body can be
+        // read before approving it.
+        self.state.room_browser.pending_remove = None;
+        self.toggle_room_expanded(&record_id);
+        true
+    }
+
+    /// Returns whether the click landed on the seat list.
+    fn handle_room_member_click(
+        &mut self,
+        layout: &crate::ui::RoomLayout,
+        col: u16,
+        row: u16,
+    ) -> bool {
+        let Some(seats) = self.state.room_browser.selected_room().map(|room| {
+            room.members
+                .iter()
+                .map(|member| {
+                    (
+                        member.bound,
+                        self.state.room_browser.pending_remove.as_deref()
+                            == Some(member.member_id.as_str()),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }) else {
+            return false;
+        };
+        let scroll = self.state.room_browser.content_scroll.min(
+            seats
+                .len()
+                .saturating_sub(layout.content.height.max(1) as usize),
+        );
+        for (visible, (bound, confirming)) in seats.iter().copied().skip(scroll).enumerate() {
+            let Some(action) =
+                crate::ui::member_action_at(layout, visible, bound, confirming, col, row)
+            else {
+                continue;
+            };
+            let index = scroll + visible;
+            match action {
+                crate::ui::RoomMemberAction::Bind => self.open_room_bind_picker(index),
+                crate::ui::RoomMemberAction::Unbind => self.unbind_room_member(index),
+                crate::ui::RoomMemberAction::Remove => self.remove_room_member(index),
+            }
+            return true;
+        }
+        // A click elsewhere on the seat list takes back a pending removal.
+        if crate::ui::member_row_at(layout, scroll, seats.len(), col, row).is_some() {
+            self.state.room_browser.pending_remove = None;
+            return true;
+        }
+        false
+    }
+
+    fn handle_lobby_browser_mouse(&mut self, mouse: MouseEvent) {
+        let area = self.state.onboarding_full_area();
+        let Some(layout) = crate::ui::lobby_browser_layout(area) else {
+            leave_modal(&mut self.state);
+            return;
+        };
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if !rect_contains(layout.popup, mouse.column, mouse.row)
+                    || rect_contains(layout.close, mouse.column, mouse.row)
+                {
+                    leave_modal(&mut self.state);
+                    return;
+                }
+                let scroll = crate::ui::lobby_list_scroll(
+                    &layout,
+                    self.state.lobby_browser.selected,
+                    self.state.lobby_browser.scroll,
+                );
+                if let Some(index) = crate::ui::lobby_row_at(
+                    &layout,
+                    scroll,
+                    self.state.lobby_browser.lobbies.len(),
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    self.state.lobby_browser.selected = index;
+                    self.state.lobby_browser.scroll = scroll;
+                    self.state.lobby_browser.thread_scroll = 0;
+                    self.state.refresh_lobby_browser();
+                }
+            }
+            // Over the conversation the wheel scrolls history; anywhere else it
+            // moves between lobbies.
+            MouseEventKind::ScrollUp if rect_contains(layout.thread, mouse.column, mouse.row) => {
+                self.state.lobby_browser.thread_scroll = self
+                    .state
+                    .lobby_browser
+                    .thread_scroll
+                    .saturating_add(1)
+                    .min(self.state.lobby_browser.thread.len().saturating_sub(1));
+            }
+            MouseEventKind::ScrollDown if rect_contains(layout.thread, mouse.column, mouse.row) => {
+                self.state.lobby_browser.thread_scroll =
+                    self.state.lobby_browser.thread_scroll.saturating_sub(1);
+            }
+            MouseEventKind::ScrollUp => self.move_lobby_selection(&layout, -1),
+            MouseEventKind::ScrollDown => self.move_lobby_selection(&layout, 1),
+            _ => {}
+        }
+    }
+
+    fn move_lobby_selection(&mut self, layout: &crate::ui::LobbyBrowserLayout, delta: isize) {
+        if self.state.lobby_browser.lobbies.is_empty() {
+            return;
+        }
+        let last = self.state.lobby_browser.lobbies.len() - 1;
+        self.state.lobby_browser.selected = self
+            .state
+            .lobby_browser
+            .selected
+            .saturating_add_signed(delta)
+            .min(last);
+        self.state.lobby_browser.scroll = crate::ui::lobby_list_scroll(
+            layout,
+            self.state.lobby_browser.selected,
+            self.state.lobby_browser.scroll,
+        );
+        self.state.lobby_browser.thread_scroll = 0;
+        self.state.refresh_lobby_browser();
+    }
+
+    fn handle_agent_call_mouse(&mut self, mouse: MouseEvent) {
+        let Some(step) = self.state.agent_call.as_ref().map(|call| call.step) else {
+            leave_modal(&mut self.state);
+            return;
+        };
+        let area = self.state.onboarding_full_area();
+        let Some(layout) = crate::ui::agent_call_layout(area, step) else {
+            close_agent_call(&mut self.state);
+            return;
+        };
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if !rect_contains(layout.popup, mouse.column, mouse.row) {
+                    close_agent_call(&mut self.state);
+                    return;
+                }
+                if let Some(action) =
+                    modal_action_from_buttons(mouse.column, mouse.row, &layout.buttons)
+                {
+                    self.apply_agent_call_action(action);
+                    return;
+                }
+                if step != crate::app::state::AgentCallStep::Pick {
+                    return;
+                }
+                let Some(call) = self.state.agent_call.as_ref() else {
+                    return;
+                };
+                let scroll = crate::ui::agent_call_scroll(
+                    call.selected,
+                    call.scroll,
+                    layout.content.height as usize,
+                );
+                if let Some(index) = crate::ui::agent_call_row_at(
+                    &layout,
+                    scroll,
+                    call.candidates.len(),
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    if let Some(call) = self.state.agent_call.as_mut() {
+                        // A second click on the highlighted agent is the fast
+                        // path straight into the prompt.
+                        let advance = call.selected == index;
+                        call.selected = index;
+                        call.scroll = scroll;
+                        if advance {
+                            call.step = crate::app::state::AgentCallStep::Compose;
+                            call.error = None;
+                        }
+                    }
+                }
+            }
+            MouseEventKind::ScrollUp if step == crate::app::state::AgentCallStep::Pick => {
+                self.move_agent_call_selection(-1);
+            }
+            MouseEventKind::ScrollDown if step == crate::app::state::AgentCallStep::Pick => {
+                self.move_agent_call_selection(1);
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crossterm::event::{MouseButton, MouseEventKind};
@@ -827,5 +1287,460 @@ mod tests {
                 .release_notes_scrollbar_target_at(track.x, track.y),
             Some(ScrollbarClickTarget::Thumb { .. } | ScrollbarClickTarget::Track { .. })
         ));
+    }
+
+    #[test]
+    fn agent_call_modal_buttons_are_clickable_where_they_render() {
+        use crate::app::state::{AgentCallCandidate, AgentCallState, AgentCallStep};
+
+        let mut app = super::super::app_for_mouse_test();
+        app.state.agent_call = Some(AgentCallState {
+            caller_pane_id: "w1:p1".into(),
+            caller_label: "author".into(),
+            candidates: vec![AgentCallCandidate {
+                pane_id: "w1:p2".into(),
+                label: "reviewer".into(),
+                agent: "claude".into(),
+                workspace: "herdr".into(),
+                status: crate::api::schema::AgentStatus::Idle,
+                connected: false,
+            }],
+            ..Default::default()
+        });
+        app.state.mode = Mode::AgentCall;
+
+        let area = app.state.onboarding_full_area();
+        let layout = crate::ui::agent_call_layout(area, AgentCallStep::Pick).expect("layout");
+        let (next_rect, _) = layout
+            .buttons
+            .iter()
+            .find(|(_, action)| *action == crate::ui::AgentCallAction::Next)
+            .copied()
+            .expect("next button");
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            next_rect.x + 1,
+            next_rect.y,
+        ));
+        assert_eq!(
+            app.state.agent_call.as_ref().map(|call| call.step),
+            Some(AgentCallStep::Compose)
+        );
+
+        let layout = crate::ui::agent_call_layout(area, AgentCallStep::Compose).expect("layout");
+        let (cancel_rect, _) = layout
+            .buttons
+            .iter()
+            .find(|(_, action)| *action == crate::ui::AgentCallAction::Cancel)
+            .copied()
+            .expect("cancel button");
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            cancel_rect.x + 1,
+            cancel_rect.y,
+        ));
+        assert!(app.state.agent_call.is_none());
+        assert_ne!(app.state.mode, Mode::AgentCall);
+    }
+
+    #[tokio::test]
+    async fn the_global_menu_row_for_company_rooms_is_clickable() {
+        let mut app = super::super::app_for_mouse_test();
+        let launcher = app.state.global_launcher_rect();
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            launcher.x,
+            launcher.y,
+        ));
+        let row = app
+            .state
+            .global_menu_labels()
+            .iter()
+            .position(|label| *label == "company rooms")
+            .expect("company rooms entry") as u16;
+        let menu = app.state.global_menu_rect();
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 1 + row,
+        ));
+        // The click requests the browser; the App opens it on its next pass.
+        assert!(app.state.request_open_room_browser);
+    }
+
+    /// The whole path the operator was promised: right-click a workspace,
+    /// name the room, seat an agent, all without leaving the mouse except to
+    /// type the names themselves.
+    #[tokio::test]
+    async fn a_room_is_created_and_seated_with_the_mouse() {
+        use crate::app::state::{RoomFormField, RoomFormKind, RoomTab};
+
+        let mut app = super::super::app_for_mouse_test();
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("api")];
+        app.state.active = Some(0);
+        let workspace_id = app.state.workspaces[0].id.clone();
+
+        // The workspace context menu asks for a room; the App opens the
+        // creator on its next pass.
+        app.state.mode = Mode::ContextMenu;
+        let menu = crate::app::state::ContextMenuState {
+            kind: crate::app::state::ContextMenuKind::Workspace { ws_idx: 0 },
+            x: 0,
+            y: 0,
+            list: crate::app::state::MenuListState::new(0),
+        };
+        let entry = menu
+            .items()
+            .iter()
+            .position(|item| *item == crate::app::state::NEW_COMPANY_ROOM_ITEM)
+            .expect("new company room entry");
+        app.apply_context_menu_action_via_api(menu, entry);
+        assert_eq!(app.state.request_new_company_room, Some(0));
+
+        app.open_room_creator(0);
+        assert_eq!(app.state.mode, Mode::CompanyRooms);
+        assert_eq!(
+            app.state.room_browser.form.as_ref().map(|form| &form.kind),
+            Some(&RoomFormKind::CreateRoom {
+                workspace_id: workspace_id.clone(),
+            }),
+            "the creator is pre-bound to the workspace that was right-clicked"
+        );
+
+        let area = app.state.onboarding_full_area();
+        let layout =
+            crate::ui::room_layout(area, crate::ui::room_chrome(&app.state)).expect("layout");
+        let rects = layout.form.expect("form rects");
+
+        // Clicking the objective field moves the caret there.
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rects.secondary.x + 2,
+            rects.secondary.y,
+        ));
+        assert_eq!(
+            app.state.room_browser.form.as_ref().map(|form| form.focus),
+            Some(RoomFormField::Secondary)
+        );
+        app.edit_room_form_field(|text| text.push_str("Ship onboarding"));
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            rects.primary.x + 2,
+            rects.primary.y,
+        ));
+        app.edit_room_form_field(|text| text.push_str("Product team"));
+
+        let (submit, _) = layout
+            .buttons
+            .iter()
+            .find(|(_, action)| *action == crate::ui::RoomAction::Submit)
+            .copied()
+            .expect("submit button");
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            submit.x + 1,
+            submit.y,
+        ));
+        assert!(app.state.room_browser.form.is_none());
+        let room = app
+            .state
+            .room_browser
+            .selected_room()
+            .expect("the new room is selected");
+        assert_eq!(room.name, "Product team");
+        assert_eq!(room.objective, "Ship onboarding");
+        assert_eq!(room.workspace_id, workspace_id);
+
+        // The members tab offers a seat button that the conversation tab does
+        // not, so the row is re-measured after switching.
+        app.set_room_tab(RoomTab::Members);
+        let layout =
+            crate::ui::room_layout(area, crate::ui::room_chrome(&app.state)).expect("layout");
+        let (seat, _) = layout
+            .buttons
+            .iter()
+            .find(|(_, action)| *action == crate::ui::RoomAction::AddSeat)
+            .copied()
+            .expect("add seat button");
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            seat.x + 1,
+            seat.y,
+        ));
+        let form_layout =
+            crate::ui::room_layout(area, crate::ui::room_chrome(&app.state)).expect("layout");
+        let toggle = form_layout
+            .form
+            .expect("form rects")
+            .orchestrator
+            .expect("the seat form offers an orchestrator box");
+        app.edit_room_form_field(|text| text.push_str("Codex"));
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            toggle.x + 2,
+            toggle.y,
+        ));
+        assert_eq!(
+            app.state
+                .room_browser
+                .form
+                .as_ref()
+                .map(|form| form.orchestrator),
+            Some(true)
+        );
+        // The lead seat is named for whoever fills it, so ticking the box on
+        // a real handle succeeds.
+        app.submit_room_form();
+        assert!(app.state.room_browser.form.is_none());
+        let seated = app
+            .state
+            .room_browser
+            .selected_room()
+            .expect("room")
+            .members
+            .clone();
+        assert_eq!(seated.len(), 1);
+        assert_eq!(seated[0].handle, "Codex");
+        assert!(seated[0].orchestrator);
+
+        // A second lead is refused, and the draft survives so the box can be
+        // unticked rather than the handle retyped.
+        app.open_room_seat_form();
+        app.edit_room_form_field(|text| text.push_str("reviewer"));
+        app.toggle_room_form_orchestrator();
+        app.submit_room_form();
+        assert!(app.state.room_browser.form.is_some());
+        assert!(app.state.room_browser.notice.is_some());
+        app.toggle_room_form_orchestrator();
+        app.submit_room_form();
+        assert!(app.state.room_browser.form.is_none());
+        assert_eq!(
+            app.state
+                .room_browser
+                .selected_room()
+                .map(|room| room.members.len()),
+            Some(2)
+        );
+    }
+
+    /// Seat buttons act on the seat they are drawn on, and removal asks twice.
+    #[tokio::test]
+    async fn seat_rows_bind_and_remove_with_the_mouse() {
+        use crate::app::state::RoomTab;
+
+        let mut app = super::super::app_for_mouse_test();
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("api")];
+        app.state.active = Some(0);
+        let room = app
+            .state
+            .company
+            .create_room(
+                &crate::company::Actor::Host,
+                app.state.workspaces[0].id.clone(),
+                "Product team".into(),
+                String::new(),
+                1,
+            )
+            .expect("room");
+        for handle in ["Codex", "reviewer"] {
+            app.state
+                .company
+                .add_member(
+                    &crate::company::Actor::Host,
+                    &room.room_id,
+                    handle.into(),
+                    None,
+                    false,
+                )
+                .expect("seat");
+        }
+        app.open_room_browser();
+        app.set_room_tab(RoomTab::Members);
+
+        let area = app.state.onboarding_full_area();
+        let layout =
+            crate::ui::room_layout(area, crate::ui::room_chrome(&app.state)).expect("layout");
+
+        // The bind button on the second row opens the picker for that seat.
+        let (bind, _, _) = crate::ui::member_action_rects(layout.content, 1, false, false)
+            .into_iter()
+            .find(|(_, action, _)| *action == crate::ui::RoomMemberAction::Bind)
+            .expect("bind button");
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            bind.x + 1,
+            bind.y,
+        ));
+        assert_eq!(
+            app.state
+                .room_browser
+                .bind
+                .as_ref()
+                .map(|bind| bind.handle.clone()),
+            Some("reviewer".into()),
+            "the picker opens for the seat whose button was clicked"
+        );
+        app.cancel_room_bind();
+
+        // Removal takes two clicks, and a click elsewhere takes back the first.
+        let remove_rect = |index: usize, confirming: bool| {
+            crate::ui::member_action_rects(layout.content, index, false, confirming)
+                .into_iter()
+                .find(|(_, action, _)| *action == crate::ui::RoomMemberAction::Remove)
+                .map(|(rect, _, _)| rect)
+                .expect("remove button")
+        };
+        let first = remove_rect(0, false);
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            first.x + 1,
+            first.y,
+        ));
+        assert_eq!(
+            app.state
+                .room_browser
+                .selected_room()
+                .map(|room| room.members.len()),
+            Some(2),
+            "one click only arms the removal"
+        );
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            layout.content.x + 1,
+            layout.content.y + 1,
+        ));
+        assert!(app.state.room_browser.pending_remove.is_none());
+
+        let armed = remove_rect(0, false);
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            armed.x + 1,
+            armed.y,
+        ));
+        let confirm = remove_rect(0, true);
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            confirm.x + 1,
+            confirm.y,
+        ));
+        assert_eq!(
+            app.state
+                .room_browser
+                .selected_room()
+                .map(|room| room.members.len()),
+            Some(1),
+            "the second click removes the seat"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_room_browser_is_fully_operable_with_the_mouse() {
+        use crate::app::state::{RoomSnapshot, RoomTab};
+
+        let mut app = super::super::app_for_mouse_test();
+        app.state
+            .company
+            .create_room(
+                &crate::company::Actor::Host,
+                "w1".into(),
+                "Product team".into(),
+                String::new(),
+                1,
+            )
+            .expect("room");
+        app.state
+            .company
+            .create_room(
+                &crate::company::Actor::Host,
+                "w1".into(),
+                "Release team".into(),
+                String::new(),
+                1,
+            )
+            .expect("room");
+        app.open_room_browser();
+        assert_eq!(app.state.room_browser.rooms.len(), 2);
+
+        let area = app.state.onboarding_full_area();
+        let layout =
+            crate::ui::room_layout(area, crate::ui::room_chrome(&app.state)).expect("layout");
+
+        // Clicking the second room row selects it.
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            layout.room_list.x + 1,
+            layout.room_list.y + 1,
+        ));
+        assert_eq!(app.state.room_browser.selected, 1);
+
+        // Clicking a tab label switches panes.
+        let members_x = layout.tabs.x + 1 + "conversation".len() as u16 + 3;
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            members_x + 1,
+            layout.tabs.y,
+        ));
+        assert_eq!(app.state.room_browser.tab, RoomTab::Members);
+
+        // The wheel over the room list moves the selection.
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::ScrollUp,
+            layout.room_list.x + 1,
+            layout.room_list.y,
+        ));
+        assert_eq!(app.state.room_browser.selected, 0);
+
+        // The post button opens the composer, and the buttons swap. The
+        // members tab offers an extra seat button, so the row is re-measured
+        // rather than reused from before the tab switch.
+        let browsing =
+            crate::ui::room_layout(area, crate::ui::room_chrome(&app.state)).expect("layout");
+        let (post_rect, _) = browsing
+            .buttons
+            .iter()
+            .find(|(_, action)| *action == crate::ui::RoomAction::Post)
+            .copied()
+            .expect("post button");
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            post_rect.x + 1,
+            post_rect.y,
+        ));
+        assert!(app.state.room_browser.composer.is_some());
+
+        // While composing, a click in the body must not switch rooms away
+        // from the draft.
+        let composing =
+            crate::ui::room_layout(area, crate::ui::room_chrome(&app.state)).expect("layout");
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            composing.room_list.x + 1,
+            composing.room_list.y + 1,
+        ));
+        assert_eq!(app.state.room_browser.selected, 0);
+        assert!(app.state.room_browser.composer.is_some());
+
+        // Cancel returns to browsing.
+        let (cancel_rect, _) = composing
+            .buttons
+            .iter()
+            .find(|(_, action)| *action == crate::ui::RoomAction::Cancel)
+            .copied()
+            .expect("cancel button");
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            cancel_rect.x + 1,
+            cancel_rect.y,
+        ));
+        assert!(app.state.room_browser.composer.is_none());
+
+        // A click outside the popup closes the browser.
+        app.handle_mouse(super::super::mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            layout.popup.x.saturating_sub(2),
+            layout.popup.y,
+        ));
+        assert_ne!(app.state.mode, Mode::CompanyRooms);
+        let _ = RoomSnapshot::default();
     }
 }

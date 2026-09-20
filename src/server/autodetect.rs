@@ -229,7 +229,9 @@ fn build_server_daemon_command(exe: PathBuf) -> Command {
     if crate::session::explicit_session_requested() {
         command
             .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
-            .env_remove("HERDR_CLIENT_SOCKET_PATH");
+            .env_remove(crate::api::LEGACY_SOCKET_PATH_ENV_VAR)
+            .env_remove(crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR)
+            .env_remove(crate::server::socket_paths::LEGACY_CLIENT_SOCKET_PATH_ENV_VAR);
     }
 
     command
@@ -342,10 +344,13 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
         std::env::set_var("HERDR_CLIENT_SOCKET_PATH", "/tmp/inherited-client.sock");
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
         let args = vec![
-            "herdr".to_string(),
+            crate::EXECUTABLE_NAME.to_string(),
             "--session".to_string(),
             "work".to_string(),
         ];
@@ -360,9 +365,15 @@ mod tests {
         assert!(envs.iter().any(|(key, value)| {
             *key == OsStr::new("HERDR_CLIENT_SOCKET_PATH") && value.is_none()
         }));
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
         std::env::remove_var("HERDR_CLIENT_SOCKET_PATH");
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
     }
 
@@ -530,7 +541,10 @@ test "$sid" = "$$"
             err.to_string().contains("status API is unavailable"),
             "unexpected error: {err}"
         );
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -540,7 +554,10 @@ test "$sid" = "$$"
         let dir = unique_test_dir("named-protocol");
         std::env::set_var("XDG_CONFIG_HOME", &dir);
         std::env::set_var(crate::session::SESSION_ENV_VAR, "work");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
         let path = crate::session::api_socket_path_for(Some("work"));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -569,16 +586,28 @@ test "$sid" = "$$"
             "unexpected error: {message}"
         );
         assert!(
-            message.contains("Run `herdr session stop work`"),
+            message.contains(&format!(
+                "Run `{} session stop work`",
+                crate::EXECUTABLE_NAME
+            )),
             "unexpected error: {message}"
         );
         assert!(
-            message.contains("then run `herdr session attach work` again"),
+            message.contains(&format!(
+                "then run `{} session attach work` again",
+                crate::EXECUTABLE_NAME
+            )),
             "unexpected error: {message}"
         );
         std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -61,6 +61,10 @@ pub(super) enum MouseAction {
         menu: ContextMenuState,
         idx: usize,
     },
+    OpenAgentCall {
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    },
 }
 
 enum MobileMouseResult {
@@ -70,6 +74,31 @@ enum MobileMouseResult {
 }
 
 impl AppState {
+    /// Pane behind the "call agent" chip on the focused agent pane's top
+    /// border, when the pointer is on it.
+    ///
+    /// Only the focused pane can carry the chip, so this checks one pane
+    /// instead of scanning the layout.
+    pub(crate) fn agent_call_button_at(&self, col: u16, row: u16) -> Option<crate::layout::PaneId> {
+        let ws_idx = self.active?;
+        let info = self.view.pane_infos.iter().find(|info| info.is_focused)?;
+        if !info.borders.contains(ratatui::widgets::Borders::TOP) || info.rect.width <= 4 {
+            return None;
+        }
+        let workspace = self.workspaces.get(ws_idx)?;
+        let pane = workspace.pane_state(info.id)?;
+        if !self
+            .terminals
+            .get(&pane.attached_terminal_id)?
+            .is_agent_terminal()
+        {
+            return None;
+        }
+        let button = crate::ui::pane_call_button_rect(info.rect)?;
+        (col >= button.x && col < button.x.saturating_add(button.width) && row == button.y)
+            .then_some(info.id)
+    }
+
     pub(crate) fn handle_pane_mouse_only(
         &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
@@ -391,7 +420,7 @@ impl AppState {
 
                 if matches!(
                     self.mode,
-                    Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane
+                    Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane | Mode::RenameLobby
                 ) {
                     let action = self
                         .rename_modal_inner()
@@ -440,6 +469,12 @@ impl AppState {
                 }
 
                 if !in_sidebar {
+                    if let Some(pane_id) = self.agent_call_button_at(mouse.column, mouse.row) {
+                        if let Some(ws_idx) = self.active {
+                            return Some(MouseAction::OpenAgentCall { ws_idx, pane_id });
+                        }
+                    }
+
                     if let Some(border) = self.find_border_at(mouse.column, mouse.row) {
                         let grab_offset = match border.direction {
                             Direction::Horizontal => border.pos.saturating_sub(mouse.column),
@@ -541,6 +576,15 @@ impl AppState {
                         return None;
                     }
 
+                    let lobby_button = self.sidebar_lobby_button_rect();
+                    if lobby_button.contains((mouse.column, mouse.row).into()) {
+                        apply_global_menu_action(
+                            self,
+                            super::modal::GlobalMenuAction::AgentLobbies,
+                        );
+                        return None;
+                    }
+
                     let new_button = self.sidebar_new_button_rect();
                     let on_new_button = mouse.row >= new_button.y
                         && mouse.row < new_button.y + new_button.height
@@ -626,6 +670,10 @@ impl AppState {
                         return None;
                     }
 
+                    if let Some(ws_idx) = self.agent_group_header_at(mouse.row) {
+                        self.toggle_agent_group(ws_idx);
+                        return None;
+                    }
                     if let Some((ws_idx, _tab_idx, pane_id)) =
                         self.agent_detail_target_at(mouse.row)
                     {
@@ -1125,6 +1173,9 @@ impl AppState {
                         .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
                         .and_then(|terminal| terminal.manual_label.as_ref())
                         .is_some();
+                    let has_agent = pane_state
+                        .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
+                        .is_some_and(crate::terminal::TerminalState::is_agent_terminal);
                     let right_click_passthrough =
                         pane_state.is_some_and(|pane| pane.right_click_passthrough);
                     self.context_menu = Some(ContextMenuState {
@@ -1134,6 +1185,7 @@ impl AppState {
                             pane_id: info.id,
                             source_pane_id,
                             has_manual_label,
+                            has_agent,
                             right_click_passthrough,
                         },
                         x: mouse.column,
@@ -1242,7 +1294,15 @@ impl AppState {
         let y = sidebar.y.min(terminal.y);
         let right = (sidebar.x + sidebar.width).max(terminal.x + terminal.width);
         let bottom = (sidebar.y + sidebar.height).max(terminal.y + terminal.height);
-        Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+        let mut screen = Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y));
+        if !self.view.runtime_header_rect.is_empty() {
+            screen = screen.union(self.view.runtime_header_rect);
+        }
+        if self.view.runtime_footer_rect.is_empty() {
+            screen
+        } else {
+            screen.union(self.view.runtime_footer_rect)
+        }
     }
 
     pub(crate) fn context_menu_rect(&self) -> Option<Rect> {
@@ -2006,6 +2066,30 @@ mod tests {
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
+
+    #[test]
+    fn studio_masthead_preserves_modal_geometry_and_excludes_pane_mouse_targets() {
+        let mut app = app_for_mouse_test();
+        app.state.theme_name = "vrspi".into();
+        app.state.workspaces = vec![Workspace::test_new("studio")];
+        app.state.active = Some(0);
+        let area = Rect::new(7, 4, 120, 30);
+        for collapsed in [false, true] {
+            app.state.sidebar_collapsed = collapsed;
+            app.state.sidebar_collapsed_mode = crate::config::SidebarCollapsedModeConfig::Hidden;
+            crate::ui::compute_view(&mut app.state, area);
+            assert_eq!(app.state.screen_rect(), area);
+            let popup = crate::ui::centered_popup_rect(area, 64, 16).unwrap();
+            let expected = ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .inner(popup);
+            assert_eq!(app.state.onboarding_modal_inner(64, 16), Some(expected));
+            let x = app.state.view.terminal_area.x + 2;
+            assert!(app.state.pane_mouse_target(x, area.y).is_none());
+            assert!(app.state.pane_mouse_target(x, area.y + 1).is_none());
+            assert!(app.state.pane_mouse_target(x, area.bottom() - 1).is_none());
+        }
+    }
 
     #[test]
     fn tab_click_survives_stray_drag_report_off_the_tab_bar() {
@@ -2801,6 +2885,7 @@ mod tests {
     #[tokio::test]
     async fn pane_mouse_motion_uses_computed_inner_rect_offsets() {
         let mut app = app_for_mouse_test();
+        app.state.hide_tab_bar_when_single_tab = false;
         let mut ws = Workspace::test_new("test");
         let pane_id = ws.tabs[0].root_pane;
         let (runtime, mut input_rx) =
@@ -2841,6 +2926,7 @@ mod tests {
     #[tokio::test]
     async fn ordinary_cell_mouse_downgrades_pixel_mode_to_cell_coordinates() {
         let mut app = app_for_mouse_test();
+        app.state.hide_tab_bar_when_single_tab = false;
         let mut ws = Workspace::test_new("test");
         let pane_id = ws.tabs[0].root_pane;
         let (runtime, mut input_rx) =
@@ -3565,6 +3651,21 @@ mod tests {
         assert_eq!(app.state.mode, Mode::Navigate);
     }
 
+    /// Row of a workspace menu entry, so a test never pins an index the menu
+    /// is free to grow past.
+    fn workspace_menu_row(item: &str) -> usize {
+        ContextMenuState {
+            kind: ContextMenuKind::Workspace { ws_idx: 0 },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        }
+        .items()
+        .iter()
+        .position(|entry| *entry == item)
+        .unwrap_or_else(|| panic!("{item} entry"))
+    }
+
     #[test]
     fn clicking_confirm_close_accepts_after_workspace_context_menu_close() {
         let mut app = app_for_mouse_test();
@@ -3577,7 +3678,7 @@ mod tests {
             kind: ContextMenuKind::Workspace { ws_idx: 1 },
             x: 2,
             y: 2,
-            list: MenuListState::new(1),
+            list: MenuListState::new(workspace_menu_row("Close")),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -3617,7 +3718,7 @@ mod tests {
             kind: ContextMenuKind::Workspace { ws_idx: 1 },
             x: 2,
             y: 2,
-            list: MenuListState::new(1),
+            list: MenuListState::new(0),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -3625,7 +3726,7 @@ mod tests {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 2,
+            menu.y + 1 + workspace_menu_row("Close") as u16,
         ));
 
         assert_eq!(app.state.workspaces.len(), 1);
@@ -3667,6 +3768,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                has_agent: false,
                 right_click_passthrough: false,
             },
             x: 2,
@@ -4537,6 +4639,31 @@ mod tests {
     }
 
     #[test]
+    fn the_hidden_lobby_shortcut_takes_no_room_and_opens_nothing() {
+        // Company rooms replaced lobbies as the shared conversation, so the
+        // sidebar no longer offers a lobby shortcut, and the row it used is
+        // not a click target that would open one anyway.
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 120, 40));
+        assert!(app.state.sidebar_lobby_button_rect().is_empty());
+
+        let (_, agents) = crate::ui::expanded_sidebar_sections(
+            app.state.view.sidebar_rect,
+            app.state.sidebar_section_split,
+        );
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            agents.x + 2,
+            agents.y + 2,
+        ));
+        assert_ne!(app.state.mode, Mode::AgentLobbies);
+        assert!(app.state.collaboration.lobbies().is_empty());
+    }
+
+    #[test]
     fn desktop_new_workspace_opens_prompt_when_enabled() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("one")];
@@ -4644,6 +4771,8 @@ mod tests {
     #[test]
     fn desktop_new_tab_button_skips_dialog_when_prompt_disabled() {
         let mut app = app_for_mouse_test();
+        // This tests the visible button, independent of the single-tab default.
+        app.state.hide_tab_bar_when_single_tab = false;
         app.state.workspaces = vec![Workspace::test_new("one")];
         app.state.active = Some(0);
         app.state.selected = 0;

@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 /// Contractual override behavior for auto-detect uses `HERDR_SOCKET_PATH`.
 /// This variable is kept as a fallback for callers that explicitly need a
 /// client-only override when `HERDR_SOCKET_PATH` is not set.
-pub const CLIENT_SOCKET_PATH_ENV_VAR: &str = "HERDR_CLIENT_SOCKET_PATH";
+pub const CLIENT_SOCKET_PATH_ENV_VAR: &str = "VRSPI_CLIENT_SOCKET_PATH";
+pub const LEGACY_CLIENT_SOCKET_PATH_ENV_VAR: &str = "HERDR_CLIENT_SOCKET_PATH";
 
 /// Socket permission mode (owner read/write only).
 const SOCKET_PERMISSION_MODE: u32 = 0o600;
@@ -25,10 +26,18 @@ pub fn client_socket_path() -> PathBuf {
         return crate::session::client_socket_path_for(crate::session::active_name().as_deref());
     }
     client_socket_path_from_overrides(
-        std::env::var(crate::api::SOCKET_PATH_ENV_VAR)
-            .ok()
-            .as_deref(),
-        std::env::var(CLIENT_SOCKET_PATH_ENV_VAR).ok().as_deref(),
+        crate::brand::env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        )
+        .ok()
+        .as_deref(),
+        crate::brand::env_var(
+            CLIENT_SOCKET_PATH_ENV_VAR,
+            LEGACY_CLIENT_SOCKET_PATH_ENV_VAR,
+        )
+        .ok()
+        .as_deref(),
     )
 }
 
@@ -63,7 +72,8 @@ pub(crate) fn derive_client_socket_from_api_socket(api_socket_path: &Path) -> Pa
 pub(crate) fn prepare_socket_path(path: &Path) -> io::Result<()> {
     crate::ipc::prepare_socket_path(path, |path| {
         format!(
-            "herdr server is already running (socket busy at {})",
+            "{} server is already running (socket busy at {})",
+            crate::EXECUTABLE_NAME,
             path.display()
         )
     })
@@ -104,7 +114,10 @@ mod tests {
 
     #[test]
     fn client_socket_path_defaults_to_config_dir() {
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
         let path = client_socket_path_from_overrides(None, None);
         assert_eq!(path, crate::config::config_dir().join("herdr-client.sock"));

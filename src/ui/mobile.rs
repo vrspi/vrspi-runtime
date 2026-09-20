@@ -1410,7 +1410,9 @@ mod tests {
         app.active = Some(0);
         app.selected = 0;
         app.view.mobile_header_rect = Rect::new(0, 0, 40, 2);
-        app.view.terminal_area = Rect::new(0, 2, 40, 18);
+        // Tall enough for the whole switcher document, so the clamped scroll
+        // below stays at the top and row offsets stay readable.
+        app.view.terminal_area = Rect::new(0, 2, 40, 20);
 
         assert_eq!(agent_panel_entries(&app).len(), 2);
         // agents title (1) + 2 agents * 2 rows = 5, then spaces title + "new
@@ -1424,7 +1426,7 @@ mod tests {
             agent_hit,
             Some(MobileSwitcherTarget::Agent { .. })
         ));
-        let workspace_hit = mobile_switcher_target_at(&app, viewport.x + 2, viewport.y + 7);
+        let workspace_hit = mobile_switcher_target_at(&app, viewport.x + 2, viewport.y + 6);
         assert_eq!(workspace_hit, Some(MobileSwitcherTarget::Workspace(0)));
     }
 

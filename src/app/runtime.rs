@@ -386,6 +386,10 @@ impl App {
 
         changed |= self.expire_due_metadata(now);
         changed |= self.handle_tab_bar_status_tasks(now);
+        changed |= self.dispatch_collaboration_messages();
+        changed |= self.dispatch_room_deliveries();
+        changed |= self.refresh_open_lobby_browser();
+        changed |= self.refresh_open_room_browser();
 
         if geometry_dirty || resized {
             self.pending_agent_resume_deadline = None;

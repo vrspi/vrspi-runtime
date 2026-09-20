@@ -5,7 +5,7 @@ use super::{App, SESSION_SAVE_DEBOUNCE};
 enum SessionSaveJob {
     Clear,
     Save {
-        snapshot: crate::persist::SessionSnapshot,
+        snapshot: Box<crate::persist::SessionSnapshot>,
         history: Option<crate::persist::SessionHistorySnapshot>,
     },
 }
@@ -37,7 +37,10 @@ impl App {
     }
 
     fn capture_session_save_job(&self) -> SessionSaveJob {
-        if self.state.workspaces.is_empty() {
+        if self.state.workspaces.is_empty()
+            && self.state.collaboration.is_empty()
+            && self.state.company.is_empty()
+        {
             SessionSaveJob::Clear
         } else {
             let snapshot = crate::persist::capture(
@@ -49,11 +52,16 @@ impl App {
                 self.state.sidebar_width,
                 self.state.sidebar_section_split,
                 self.state.collapsed_space_keys.clone(),
+                &self.state.collaboration,
+                &self.state.company,
             );
             let history = self.persist_pane_history.then(|| {
                 crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)
             });
-            SessionSaveJob::Save { snapshot, history }
+            SessionSaveJob::Save {
+                snapshot: Box::new(snapshot),
+                history,
+            }
         }
     }
 
@@ -95,6 +103,30 @@ impl App {
 
         run_session_save_job(self.capture_session_save_job());
         self.session_save_deadline = None;
+    }
+
+    /// Synchronously persists the current session before an irreversible
+    /// external side effect such as submitting bytes to a terminal.
+    pub(crate) fn persist_session_barrier(&mut self) -> bool {
+        if let Some(thread) = self.session_save_thread.take() {
+            let _ = thread.join();
+        }
+        if self.no_session {
+            return true;
+        }
+        let SessionSaveJob::Save { snapshot, history } = self.capture_session_save_job() else {
+            return false;
+        };
+        match crate::persist::save_checked(&snapshot, history.as_ref()) {
+            Ok(()) => {
+                self.session_save_deadline = None;
+                true
+            }
+            Err(err) => {
+                tracing::warn!(%err, "failed to persist collaboration delivery transition");
+                false
+            }
+        }
     }
 }
 

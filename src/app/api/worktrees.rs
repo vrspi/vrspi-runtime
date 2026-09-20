@@ -210,7 +210,10 @@ impl App {
             let space = crate::workspace::git_space_metadata(&path).ok_or_else(|| {
                 ApiFailure::new(
                     "not_git_worktree",
-                    "Herdr worktree actions require a path inside a Git work tree",
+                    format!(
+                        "{} worktree actions require a path inside a Git work tree",
+                        crate::brand::PRODUCT_NAME
+                    ),
                 )
             })?;
             if space.is_linked_worktree {
@@ -271,7 +274,10 @@ impl App {
             let space = crate::workspace::git_space_metadata(&path).ok_or_else(|| {
                 ApiFailure::new(
                     "not_git_worktree",
-                    "Herdr worktree actions require a path inside a Git work tree",
+                    format!(
+                        "{} worktree actions require a path inside a Git work tree",
+                        crate::brand::PRODUCT_NAME
+                    ),
                 )
             })?;
             let workspace_idx = self.list_source_workspace_idx_for_space(&space, trust_repository);
@@ -328,7 +334,10 @@ impl App {
         let Some(space) = git_space else {
             return Err(ApiFailure::new(
                 "not_git_worktree",
-                "Herdr worktree actions require a workspace inside a Git work tree",
+                format!(
+                    "{} worktree actions require a workspace inside a Git work tree",
+                    crate::brand::PRODUCT_NAME
+                ),
             ));
         };
         if space.is_linked_worktree {
@@ -385,7 +394,10 @@ impl App {
         let Some(space) = git_space else {
             return Err(ApiFailure::new(
                 "not_git_worktree",
-                "Herdr worktree actions require a workspace inside a Git work tree",
+                format!(
+                    "{} worktree actions require a workspace inside a Git work tree",
+                    crate::brand::PRODUCT_NAME
+                ),
             ));
         };
         let workspace_idx = if space.is_linked_worktree {

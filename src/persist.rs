@@ -9,6 +9,7 @@ pub mod plugin_registry;
 mod restore;
 mod snapshot;
 
+pub(crate) use self::io::save_checked;
 pub use self::io::{clear, clear_history, load, load_history, save};
 pub use self::restore::restore;
 #[cfg(unix)]

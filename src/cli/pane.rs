@@ -97,10 +97,17 @@ fn pane_get(args: &[String]) -> std::io::Result<i32> {
     })?)
 }
 
+fn current_pane_id_from_env() -> Option<String> {
+    crate::brand::env_var(
+        crate::integration::VRSPI_PANE_ID_ENV_VAR,
+        crate::integration::HERDR_PANE_ID_ENV_VAR,
+    )
+    .ok()
+    .filter(|value| !value.trim().is_empty())
+}
+
 fn pane_current(args: &[String]) -> std::io::Result<i32> {
-    let env_pane_id = std::env::var("HERDR_PANE_ID")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
+    let env_pane_id = current_pane_id_from_env();
     let caller_pane_id = match parse_pane_current_args(args, env_pane_id.as_deref()) {
         Ok(caller_pane_id) => caller_pane_id,
         Err(message) => {
@@ -225,9 +232,7 @@ fn pane_resize(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn parse_optional_current_pane_args_from_env(args: &[String]) -> Result<Option<String>, String> {
-    let env_pane_id = std::env::var("HERDR_PANE_ID")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
+    let env_pane_id = current_pane_id_from_env();
     parse_optional_current_pane_args(args, env_pane_id.as_deref())
 }
 
@@ -541,9 +546,7 @@ fn parse_pane_read_args(args: &[String]) -> Result<PaneReadParams, String> {
 }
 
 fn pane_input(args: &[String]) -> std::io::Result<i32> {
-    let env_pane_id = std::env::var("HERDR_PANE_ID")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
+    let env_pane_id = current_pane_id_from_env();
     let params = match parse_pane_input_args(args, env_pane_id.as_deref()) {
         Ok(params) => params,
         Err(message) => {
@@ -584,7 +587,7 @@ fn parse_pane_input_args(
                 pane_id = Some(
                     env_pane_id
                         .map(super::normalize_pane_id)
-                        .ok_or("--current requires HERDR_PANE_ID")?,
+                        .ok_or("--current requires VRSPI_PANE_ID (or legacy HERDR_PANE_ID)")?,
                 );
                 index += 1;
             }
@@ -621,9 +624,7 @@ fn parse_right_click_target(value: &str) -> Result<PaneRightClickTarget, String>
 }
 
 fn pane_split(args: &[String]) -> std::io::Result<i32> {
-    let env_pane_id = std::env::var("HERDR_PANE_ID")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
+    let env_pane_id = current_pane_id_from_env();
     let params = match parse_pane_split_args(args, env_pane_id.as_deref()) {
         Ok(params) => params,
         Err(message) => {
@@ -669,7 +670,7 @@ fn parse_pane_split_args(
                 pane_id = Some(
                     env_pane_id
                         .map(super::normalize_pane_id)
-                        .ok_or("--current requires HERDR_PANE_ID")?,
+                        .ok_or("--current requires VRSPI_PANE_ID (or legacy HERDR_PANE_ID)")?,
                 );
                 index += 1;
             }
@@ -1667,39 +1668,90 @@ fn pane_report_metadata(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_pane_help() {
-    eprintln!("herdr pane commands:");
-    eprintln!("  herdr pane list [--workspace <workspace_id>]");
-    eprintln!("  herdr pane current [--pane ID|--current]");
-    eprintln!("  herdr pane get <pane_id>");
-    eprintln!("  herdr pane layout [--pane ID|--current]");
-    eprintln!("  herdr pane process-info [--pane ID|--current]");
-    eprintln!("  herdr pane neighbor --direction left|right|up|down [--pane ID|--current]");
-    eprintln!("  herdr pane edges [--pane ID|--current]");
-    eprintln!("  herdr pane focus --direction left|right|up|down [--pane ID|--current]");
+    eprintln!("{name} pane commands:", name = crate::EXECUTABLE_NAME);
     eprintln!(
-        "  herdr pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
+        "  {name} pane list [--workspace <workspace_id>]",
+        name = crate::EXECUTABLE_NAME
     );
-    eprintln!("  herdr pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]");
-    eprintln!("  herdr pane rename <pane_id> <label>|--clear");
-    eprintln!("  herdr pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
-    eprintln!("  herdr pane input [<pane_id>|--pane ID|--current] --right-click herdr|pane");
     eprintln!(
-        "  herdr pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--right-click herdr|pane] [--focus] [--no-focus]"
+        "  {name} pane current [--pane ID|--current]",
+        name = crate::EXECUTABLE_NAME
     );
-    eprintln!("  herdr pane swap --direction left|right|up|down [--pane ID|--current]");
-    eprintln!("  herdr pane swap --source-pane ID --target-pane ID");
-    eprintln!("  herdr pane move <pane_id> --tab <tab_id> --split right|down [--target-pane ID] [--ratio FLOAT] [--focus|--no-focus]");
-    eprintln!("  herdr pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus|--no-focus]");
-    eprintln!("  herdr pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus|--no-focus]");
-    eprintln!("  herdr pane close <pane_id>");
-    eprintln!("  herdr pane send-text <pane_id> <text>");
-    eprintln!("  herdr pane send-keys <pane_id> <key> [key ...]");
-    eprintln!("  herdr pane wait-output <pane_id> (--match TEXT | --regex PATTERN) [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--raw]");
-    eprintln!("  herdr pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
-    eprintln!("  herdr pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
-    eprintln!("  herdr pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
-    eprintln!("  herdr pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--state-label STATUS=TEXT] [--clear-state-labels] [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
-    eprintln!("  herdr pane run <pane_id> <command>");
+    eprintln!("  {name} pane get <pane_id>", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} pane layout [--pane ID|--current]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane process-info [--pane ID|--current]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane neighbor --direction left|right|up|down [--pane ID|--current]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane edges [--pane ID|--current]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane focus --direction left|right|up|down [--pane ID|--current]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]", name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane rename <pane_id> <label>|--clear",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {name} pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} pane input [<pane_id>|--pane ID|--current] --right-click herdr|pane",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--right-click herdr|pane] [--focus] [--no-focus]", name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane swap --direction left|right|up|down [--pane ID|--current]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane swap --source-pane ID --target-pane ID",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {name} pane move <pane_id> --tab <tab_id> --split right|down [--target-pane ID] [--ratio FLOAT] [--focus|--no-focus]", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus|--no-focus]", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus|--no-focus]", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} pane close <pane_id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane send-text <pane_id> <text>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} pane send-keys <pane_id> <key> [key ...]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {name} pane wait-output <pane_id> (--match TEXT | --regex PATTERN) [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--raw]", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH]", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} pane release-agent <pane_id> --source ID --agent LABEL [--seq N]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {name} pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--state-label STATUS=TEXT] [--clear-state-labels] [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} pane run <pane_id> <command>",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 #[cfg(test)]

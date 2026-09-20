@@ -100,7 +100,7 @@ impl App {
                 Mode::ReleaseNotes => self.handle_release_notes_key(key_event),
                 Mode::ProductAnnouncement => self.handle_product_announcement_key(key_event),
                 Mode::Prefix | Mode::Navigate | Mode::Copy => unreachable!(),
-                Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => {
+                Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane | Mode::RenameLobby => {
                     self.handle_rename_key_via_api(key_event)
                 }
                 Mode::NewLinkedWorktree => self.handle_worktree_create_key(key_event),
@@ -113,6 +113,9 @@ impl App {
                 }
                 Mode::Settings => self.handle_settings_key(key_event),
                 Mode::GlobalMenu => handle_global_menu_key(&mut self.state, key_event),
+                Mode::AgentLobbies => self.handle_agent_lobbies_key_via_api(key_event),
+                Mode::AgentCall => self.handle_agent_call_key(key_event),
+                Mode::CompanyRooms => self.handle_room_browser_key(key_event),
                 Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key),
                 Mode::Navigator => {
                     handle_navigator_key(&mut self.state, &self.terminal_runtimes, key_event)
@@ -209,7 +212,7 @@ impl App {
 
     pub(crate) fn paste_into_active_text_input(&mut self, text: &str) -> bool {
         match self.state.mode {
-            Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => {
+            Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane | Mode::RenameLobby => {
                 insert_rename_input_text(&mut self.state, text);
                 true
             }
@@ -227,6 +230,25 @@ impl App {
                     return false;
                 }
                 self.insert_worktree_open_search_text(text);
+                true
+            }
+            Mode::AgentCall => {
+                if !self
+                    .state
+                    .agent_call
+                    .as_ref()
+                    .is_some_and(|call| call.step == crate::app::state::AgentCallStep::Compose)
+                {
+                    return false;
+                }
+                self.insert_agent_call_text(text);
+                true
+            }
+            Mode::CompanyRooms => {
+                let Some(composer) = self.state.room_browser.composer.as_mut() else {
+                    return false;
+                };
+                composer.push_str(text);
                 true
             }
             Mode::Navigator => {
@@ -445,6 +467,9 @@ impl App {
                     MouseAction::ConfirmCloseAccept => self.confirm_close_accept_via_api(),
                     MouseAction::ContextMenu { menu, idx } => {
                         self.apply_context_menu_action_via_api(menu, idx)
+                    }
+                    MouseAction::OpenAgentCall { ws_idx, pane_id } => {
+                        self.open_agent_call(ws_idx, pane_id)
                     }
                 }
             }
@@ -733,13 +758,20 @@ pub(crate) fn is_modal_paste_shortcut(key: &KeyEvent) -> bool {
 
 pub(crate) fn modal_paste_target_active(state: &AppState) -> bool {
     match state.mode {
-        Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane | Mode::NewLinkedWorktree => {
-            true
-        }
+        Mode::RenameWorkspace
+        | Mode::RenameTab
+        | Mode::RenamePane
+        | Mode::RenameLobby
+        | Mode::NewLinkedWorktree => true,
         Mode::OpenExistingWorktree => state
             .worktree_open
             .as_ref()
             .is_some_and(|open| open.search_focused),
+        Mode::AgentCall => state
+            .agent_call
+            .as_ref()
+            .is_some_and(|call| call.step == crate::app::state::AgentCallStep::Compose),
+        Mode::CompanyRooms => state.room_browser.composer.is_some(),
         Mode::Navigator => state.navigator.search_focused,
         Mode::KeybindHelp => state.keybind_help.search_focused,
         Mode::Copy => state
@@ -882,6 +914,8 @@ fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
         state.sidebar_width,
         state.sidebar_section_split,
         state.collapsed_space_keys.clone(),
+        &state.collaboration,
+        &state.company,
     )
 }
 

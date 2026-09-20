@@ -2,9 +2,11 @@ use std::time::{Duration, Instant};
 
 mod agent_view;
 mod agents;
+mod company;
 mod env;
 mod integrations;
 mod layouts;
+mod messages;
 mod pane_graphics;
 mod panes;
 pub(crate) mod plugins;
@@ -610,6 +612,21 @@ impl App {
     }
 
     pub(crate) fn emit_pane_state_update(&mut self, update: &crate::app::actions::PaneStateUpdate) {
+        if update.agent_released {
+            let terminal_id = self
+                .state
+                .workspaces
+                .get(update.ws_idx)
+                .and_then(|workspace| workspace.terminal_id(update.pane_id))
+                .map(ToString::to_string);
+            if let Some(terminal_id) = terminal_id {
+                let lobby_updates = self.state.collaboration.retire_terminal(&terminal_id);
+                self.schedule_session_save();
+                for lobby in lobby_updates {
+                    self.emit_lobby_updated(lobby);
+                }
+            }
+        }
         let Some(pane_id) = self.public_pane_id(update.ws_idx, update.pane_id) else {
             return;
         };
@@ -1074,6 +1091,87 @@ impl App {
                     "invalid_request",
                     "agent.wait is handled by the api server",
                 );
+            }
+            Method::AgentSelf(params) => return self.handle_agent_self(request.id, params),
+            Method::AgentMessageSend(params) => {
+                return self.handle_agent_message_send(request.id, params)
+            }
+            Method::AgentMessageList(params) => {
+                return self.handle_agent_message_list(request.id, params)
+            }
+            Method::AgentMessageGet(params) => {
+                return self.handle_agent_message_get(request.id, params)
+            }
+            Method::AgentMessageAck(params) => {
+                return self.handle_agent_message_ack(request.id, params)
+            }
+            Method::AgentMessageRevoke(params) => {
+                return self.handle_agent_message_revoke(request.id, params)
+            }
+            Method::AgentMessageWait(_) => {
+                return responses::encode_error(
+                    request.id,
+                    "invalid_request",
+                    "agent.message.wait is handled by the api server",
+                );
+            }
+            Method::AgentLobbyConnect(params) => {
+                return self.handle_agent_lobby_connect(request.id, params)
+            }
+            Method::AgentLobbyList(params) => {
+                return self.handle_agent_lobby_list(request.id, params)
+            }
+            Method::AgentLobbyLeave(params) => {
+                return self.handle_agent_lobby_leave(request.id, params)
+            }
+            Method::AgentLobbyRemove(params) => {
+                return self.handle_agent_lobby_remove(request.id, params)
+            }
+            Method::AgentLobbyDelete(params) => {
+                return self.handle_agent_lobby_delete(request.id, params)
+            }
+            Method::AgentLobbyRename(params) => {
+                return self.handle_agent_lobby_rename(request.id, params)
+            }
+            Method::RoomCreate(params) => return self.handle_room_create(request.id, params),
+            Method::RoomList(params) => return self.handle_room_list(request.id, params),
+            Method::RoomGet(params) => return self.handle_room_get(request.id, params),
+            Method::RoomSetLifecycle(params) => {
+                return self.handle_room_set_lifecycle(request.id, params)
+            }
+            Method::RoomMemberAdd(params) => {
+                return self.handle_room_member_add(request.id, params)
+            }
+            Method::RoomMemberRemove(params) => {
+                return self.handle_room_member_remove(request.id, params)
+            }
+            Method::RoomMemberBind(params) => {
+                return self.handle_room_member_bind(request.id, params)
+            }
+            Method::RoomPost(params) => return self.handle_room_post(request.id, params),
+            Method::RoomAck(params) => return self.handle_room_ack(request.id, params),
+            Method::RoomEvents(params) => return self.handle_room_events(request.id, params),
+            Method::RoomMemoryPut(params) => {
+                return self.handle_room_memory_put(request.id, params)
+            }
+            Method::RoomMemorySearch(params) => {
+                return self.handle_room_memory_search(request.id, params)
+            }
+            Method::RoomMemoryGet(params) => {
+                return self.handle_room_memory_get(request.id, params)
+            }
+            Method::RoomMemoryAccept(params) => {
+                return self.handle_room_memory_accept(request.id, params)
+            }
+            Method::RoomMemoryDelete(params) => {
+                return self.handle_room_memory_delete(request.id, params)
+            }
+            Method::RoomDelete(params) => return self.handle_room_delete(request.id, params),
+            Method::RoomMemberGrant(params) => {
+                return self.handle_room_member_grant(request.id, params)
+            }
+            Method::RoomAllowanceExtend(params) => {
+                return self.handle_room_allowance_extend(request.id, params)
             }
             Method::AgentRead(params) => return self.handle_agent_read(request.id, params),
             Method::AgentExplain(target) => return self.handle_agent_explain(request.id, target),

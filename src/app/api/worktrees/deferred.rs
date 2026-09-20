@@ -240,7 +240,10 @@ impl App {
                 encode_error(
                     id,
                     "not_linked_worktree",
-                    "workspace is not a Herdr-managed worktree checkout",
+                    format!(
+                        "workspace is not a {}-managed worktree checkout",
+                        crate::brand::PRODUCT_NAME
+                    ),
                 ),
             );
             return;

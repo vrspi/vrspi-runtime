@@ -273,6 +273,17 @@ herdr pane report-metadata <pane_id> \
 ```bash
 herdr agent list
 herdr agent get <target>
+herdr agent self
+herdr agent message send <target> <text> [--reply-to ID]
+herdr agent message inbox [--after SEQ] [--limit N] [--unacked]
+herdr agent message outbox [--after SEQ] [--limit N]
+herdr agent message get <id>
+herdr agent message ack <id>
+herdr agent message revoke <id>
+herdr agent message wait [--after SEQ] [--timeout MS]
+herdr agent message wait <id> [--until pending|observed|injected|acknowledged|revoked]... [--timeout MS]
+herdr agent lobby list
+herdr agent lobby connect <target>
 herdr agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]
 herdr agent send-keys <target> <key> [key ...]
 herdr agent prompt <target> <text> [--wait] [--until STATUS]... [--timeout MS]
@@ -286,6 +297,8 @@ herdr agent explain --file PATH --agent LABEL [--json|--verbose]
 ```
 
 エージェントターゲットは、一意なライブエージェント名、または現在そのエージェントをホストしているペイン ID です。ターミナル ID とエージェント kind のラベルだけでは指定できません。`agent start` で起動するエージェントには名前が必須で、手動で起動したエージェントは名前なしのままペイン ID で指定します。
+
+`agent self`、`agent message`、`agent lobby` コマンドは `HERDR_PANE_ID` から呼び出し元を特定します。`agent lobby connect` は caller と target を接続し、idle-only の自動配信を有効にします。`agent lobby list` は lobby と active/offline member を表示します。送信者は自動注入または acknowledge の前だけ revoke できます。
 
 `agent start` は既存の利用可能なシェルペインを起動対象にします。対話シェル自身がフォアグラウンドを所有し、フォアグラウンドのコマンド、エディタ、エージェントが動いていない必要があります。トポロジーは別に作成します。名前はライブエージェント間で一意で、`[a-z][a-z0-9_-]{0,31}` に一致する必要があります。対応する kind は `pi`、`claude`、`codex`、`gemini`、`cursor`、`devin`、`agy`、`cline`、`omp`、`mastracode`、`opencode`、`copilot`、`kimi`、`kiro`、`droid`、`amp`、`grok`、`hermes`、`kilo`、`qodercli`、`qwen`、`maki`、`muse` です。名前は現在のペイン占有者に属し、そのエージェントの終了、release、置換で消えます。一時的に検出できないだけでは消えません。
 

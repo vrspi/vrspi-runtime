@@ -84,6 +84,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         Mode::RenameTab if app.creating_new_tab => "new tab",
         Mode::RenameTab => "rename tab",
         Mode::RenamePane => "rename pane",
+        Mode::RenameLobby => "rename lobby",
         _ => return,
     };
 
@@ -389,8 +390,11 @@ pub(super) fn render_remove_worktree_overlay(app: &AppState, frame: &mut Frame, 
         rows[2],
     );
     frame.render_widget(
-        Paragraph::new(" The branch is not deleted. The Herdr workspace will close.")
-            .style(Style::default().fg(app.palette.overlay0)),
+        Paragraph::new(format!(
+            " The branch is not deleted. The {} workspace will close.",
+            crate::brand::PRODUCT_NAME
+        ))
+        .style(Style::default().fg(app.palette.overlay0)),
         rows[3],
     );
     if remove.force_confirmation {

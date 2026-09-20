@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::common::{AgentStatus, ReadSource};
+use super::messages::AgentLobby;
 use super::panes::{PaneInfo, PaneReadResult, PaneScrollInfo};
 use super::tabs::TabInfo;
 use super::workspaces::WorkspaceInfo;
@@ -82,6 +83,10 @@ pub enum Subscription {
     PaneScrollChanged { pane_id: String },
     #[serde(rename = "layout.updated")]
     LayoutUpdated {},
+    #[serde(rename = "agent.lobby.updated")]
+    AgentLobbyUpdated {},
+    #[serde(rename = "agent.lobby.deleted")]
+    AgentLobbyDeleted {},
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -218,6 +223,8 @@ pub enum EventKind {
     PaneAgentDetected,
     PaneAgentStatusChanged,
     LayoutUpdated,
+    AgentLobbyUpdated,
+    AgentLobbyDeleted,
 }
 
 impl EventKind {
@@ -249,6 +256,8 @@ impl EventKind {
             EventKind::PaneAgentDetected => "pane.agent_detected",
             EventKind::PaneAgentStatusChanged => "pane.agent_status_changed",
             EventKind::LayoutUpdated => "layout.updated",
+            EventKind::AgentLobbyUpdated => "agent.lobby.updated",
+            EventKind::AgentLobbyDeleted => "agent.lobby.deleted",
         }
     }
 }
@@ -281,6 +290,8 @@ pub const KNOWN_EVENT_KINDS: &[EventKind] = &[
     EventKind::PaneAgentDetected,
     EventKind::PaneAgentStatusChanged,
     EventKind::LayoutUpdated,
+    EventKind::AgentLobbyUpdated,
+    EventKind::AgentLobbyDeleted,
 ];
 
 pub const PLUGIN_HOOK_EVENT_KINDS: &[EventKind] = &[
@@ -552,5 +563,11 @@ pub enum EventData {
     },
     LayoutUpdated {
         layout: super::panes::PaneLayoutSnapshot,
+    },
+    AgentLobbyUpdated {
+        lobby: AgentLobby,
+    },
+    AgentLobbyDeleted {
+        lobby_id: String,
     },
 }

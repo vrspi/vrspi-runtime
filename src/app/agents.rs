@@ -20,6 +20,36 @@ fn valid_agent_name(name: &str) -> bool {
 }
 
 impl App {
+    /// The name the operator gave the place an agent lives: its pane's label
+    /// when the pane was renamed, otherwise its tab's name.
+    ///
+    /// Two agents of the same kind are told apart by where they run, and the
+    /// operator already names tabs for exactly that purpose.
+    pub(crate) fn agent_place_label(
+        &self,
+        agent: &crate::api::schema::AgentInfo,
+    ) -> Option<String> {
+        let pane_label = self
+            .state
+            .terminals
+            .iter()
+            .find(|(id, _)| id.to_string() == agent.terminal_id)
+            .and_then(|(_, terminal)| terminal.manual_label.clone())
+            .filter(|label| !label.trim().is_empty());
+        if pane_label.is_some() {
+            return pane_label;
+        }
+        let ws_idx = self
+            .state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == agent.workspace_id)?;
+        let workspace = &self.state.workspaces[ws_idx];
+        (0..workspace.tabs.len())
+            .find(|&tab_idx| self.public_tab_id(ws_idx, tab_idx).as_deref() == Some(&agent.tab_id))
+            .and_then(|tab_idx| workspace.tab_display_name(tab_idx))
+    }
+
     pub(super) fn collect_agent_infos(&self) -> Vec<crate::api::schema::AgentInfo> {
         self.state
             .workspaces

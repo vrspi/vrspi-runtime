@@ -253,14 +253,29 @@ fn parse_live_handoff_params(args: &[String]) -> Option<ServerLiveHandoffParams>
 }
 
 fn print_server_help() {
-    eprintln!("herdr server commands:");
-    eprintln!("  herdr server                run as headless server");
-    eprintln!("  herdr server stop           stop the running server via the API socket");
-    eprintln!("  herdr server live-handoff   hand off live panes to a new local server");
-    eprintln!("  herdr server reload-config  reload config.toml in the running server");
-    eprintln!("  herdr server agent-manifests [--json]  show agent detection manifest status");
-    eprintln!("  herdr server update-agent-manifests [--json]  fetch and reload agent detection manifests");
-    eprintln!("  herdr server reload-agent-manifests  reload agent detection manifests in the running server");
+    eprintln!("{name} server commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} server                run as headless server",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} server stop           stop the running server via the API socket",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} server live-handoff   hand off live panes to a new local server",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} server reload-config  reload config.toml in the running server",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} server agent-manifests [--json]  show agent detection manifest status",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {name} server update-agent-manifests [--json]  fetch and reload agent detection manifests", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} server reload-agent-manifests  reload agent detection manifests in the running server", name = crate::EXECUTABLE_NAME);
 }
 
 #[cfg(test)]

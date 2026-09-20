@@ -3,7 +3,7 @@ use std::io::Write;
 use clap::{Arg, ArgAction, ArgGroup, Command, ValueHint};
 
 pub(super) fn command() -> Command {
-    let command = Command::new("herdr")
+    let command = Command::new(crate::EXECUTABLE_NAME)
         .about("terminal workspace manager for AI coding agents")
         .disable_help_flag(true)
         .disable_version_flag(true)
@@ -88,7 +88,7 @@ fn write_requested_help(
     let mut root = command();
     root.build();
     let mut selected = &mut root;
-    let mut path = vec!["herdr".to_string()];
+    let mut path = vec![crate::EXECUTABLE_NAME.to_string()];
     for segment in &args[1..help_index] {
         if selected.find_subcommand(segment).is_none() {
             break;
@@ -104,7 +104,16 @@ fn write_requested_help(
 
     selected.set_bin_name(path.join(" "));
     before_write();
-    selected.write_long_help(&mut *output)?;
+    let mut rendered = Vec::new();
+    selected.write_long_help(&mut rendered)?;
+    let rendered = String::from_utf8(rendered).map_err(std::io::Error::other)?;
+    let package_usage = format!("Usage: {}", env!("CARGO_PKG_NAME"));
+    let executable_usage = format!("Usage: {}", crate::EXECUTABLE_NAME);
+    output.write_all(
+        rendered
+            .replacen(&package_usage, &executable_usage, 1)
+            .as_bytes(),
+    )?;
     writeln!(output)?;
     Ok(true)
 }
@@ -328,10 +337,44 @@ fn agent_command() -> Command {
         .about("Control and inspect agent panes")
         .subcommand(Command::new("list").about("List agents"))
         .subcommand(id_command("get", "target", "Show an agent"))
+        .subcommand(Command::new("self").about("Show the calling managed agent identity"))
+        .subcommand(agent_message_command())
+        .subcommand(
+            Command::new("lobby")
+                .about("Connect agents and manage collaboration spaces")
+                .subcommand(Command::new("list").about("List collaboration spaces"))
+                .subcommand(
+                    Command::new("connect")
+                        .about("Connect this agent with another agent")
+                        .arg(required("target", "TARGET")),
+                )
+                .subcommand(
+                    Command::new("leave")
+                        .about("Leave a collaboration space")
+                        .arg(required("lobby_id", "LOBBY_ID")),
+                )
+                .subcommand(
+                    Command::new("remove")
+                        .about("Remove a member from a space you own")
+                        .arg(required("lobby_id", "LOBBY_ID"))
+                        .arg(required("member_instance_id", "MEMBER_INSTANCE_ID")),
+                )
+                .subcommand(
+                    Command::new("rename")
+                        .about("Rename a collaboration space you own")
+                        .arg(required("lobby_id", "LOBBY_ID"))
+                        .arg(required("label", "LABEL")),
+                )
+                .subcommand(
+                    Command::new("delete")
+                        .about("Delete a collaboration space you own")
+                        .arg(required("lobby_id", "LOBBY_ID")),
+                ),
+        )
         .subcommand(
             Command::new("read")
                 .about("Read agent terminal output")
-                .override_usage("herdr agent read <TARGET> [OPTIONS]")
+                .override_usage(format!("{} agent read <TARGET> [OPTIONS]", crate::EXECUTABLE_NAME))
                 .arg(required("target", "TARGET"))
                 .arg(read_source_option(true))
                 .arg(option("lines", "N"))
@@ -348,7 +391,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("prompt")
                 .about("Submit a prompt to an agent")
-                .override_usage("herdr agent prompt <TARGET> <TEXT> [OPTIONS]")
+                .override_usage(format!("{} agent prompt <TARGET> <TEXT> [OPTIONS]", crate::EXECUTABLE_NAME))
                 .arg(required("target", "TARGET"))
                 .arg(required("text", "TEXT"))
                 .arg(
@@ -374,7 +417,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("rename")
                 .about("Rename an agent")
-                .override_usage("herdr agent rename <TARGET> <NAME>|--clear")
+                .override_usage(format!("{} agent rename <TARGET> <NAME>|--clear", crate::EXECUTABLE_NAME))
                 .arg(required("target", "TARGET"))
                 .arg(Arg::new("name").value_name("NAME"))
                 .arg(flag("clear"))
@@ -388,7 +431,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("wait")
                 .about("Wait until an agent reaches one of the requested states")
-                .override_usage("herdr agent wait <TARGET> [OPTIONS]")
+                .override_usage(format!("{} agent wait <TARGET> [OPTIONS]", crate::EXECUTABLE_NAME))
                 .arg(required("target", "TARGET"))
                 .arg(
                     option("until", "STATUS")
@@ -404,7 +447,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("attach")
                 .about("Attach directly to an agent terminal")
-                .override_usage("herdr agent attach <TARGET> [OPTIONS]")
+                .override_usage(format!("{} agent attach <TARGET> [OPTIONS]", crate::EXECUTABLE_NAME))
                 .arg(required("target", "TARGET"))
                 .arg(flag("takeover")),
         )
@@ -412,7 +455,10 @@ fn agent_command() -> Command {
             Command::new("start")
                 .about("Start a supported interactive agent in an existing pane")
                 .override_usage(
-                    "herdr agent start <NAME> --kind <KIND> --pane <ID> [OPTIONS] [-- [AGENT_ARG]...]",
+                    format!(
+                        "{} agent start <NAME> --kind <KIND> --pane <ID> [OPTIONS] [-- [AGENT_ARG]...]",
+                        crate::EXECUTABLE_NAME
+                    ),
                 )
                 .arg(required("name", "NAME"))
                 .arg(
@@ -454,6 +500,55 @@ fn agent_command() -> Command {
                         .long("verbose")
                         .action(ArgAction::SetTrue),
                 ),
+        )
+}
+
+fn agent_message_command() -> Command {
+    let list_options = |command: Command| {
+        command
+            .arg(option("after", "SEQ").help("Only return messages after this sequence"))
+            .arg(option("limit", "N").help("Maximum messages to return (max 100)"))
+            .arg(flag("unacked").help("Only return messages not yet acknowledged"))
+    };
+    Command::new("message")
+        .about("Exchange retained messages with agents")
+        .subcommand(
+            Command::new("send")
+                .about("Send a retained message")
+                .arg(required("target", "TARGET"))
+                .arg(required("text", "TEXT"))
+                .arg(option("reply-to", "ID")),
+        )
+        .subcommand(list_options(
+            Command::new("inbox").about("Read inbound messages"),
+        ))
+        .subcommand(list_options(
+            Command::new("outbox").about("Read sent messages"),
+        ))
+        .subcommand(id_command("get", "id", "Read a message"))
+        .subcommand(id_command("ack", "id", "Acknowledge a received message"))
+        .subcommand(id_command(
+            "revoke",
+            "id",
+            "Revoke an unacknowledged sent message",
+        ))
+        .subcommand(
+            Command::new("wait")
+                .about("Wait for inbound mail or a message state")
+                .arg(Arg::new("id").value_name("ID"))
+                .arg(option("after", "SEQ").help("Wait for inbound mail after this sequence"))
+                .arg(
+                    option("until", "STATE")
+                        .action(ArgAction::Append)
+                        .value_parser([
+                            "pending",
+                            "observed",
+                            "injected",
+                            "acknowledged",
+                            "revoked",
+                        ]),
+                )
+                .arg(option("timeout", "MS")),
         )
 }
 
@@ -1093,13 +1188,19 @@ mod tests {
                 let mut output = Vec::new();
                 assert!(
                     super::write_requested_help(&args, &mut output, || {}).unwrap(),
-                    "help was not handled for herdr {} {flag}",
+                    "help was not handled for {} {} {flag}",
+                    crate::EXECUTABLE_NAME,
                     path.join(" ")
                 );
                 let output = String::from_utf8(output).unwrap();
                 assert!(
-                    output.contains(&format!("Usage: herdr {}", path.join(" "))),
-                    "unexpected help for herdr {}: {output}",
+                    output.contains(&format!(
+                        "Usage: {} {}",
+                        crate::EXECUTABLE_NAME,
+                        path.join(" ")
+                    )),
+                    "unexpected help for {} {}: {output}",
+                    crate::EXECUTABLE_NAME,
                     path.join(" ")
                 );
             }
@@ -1209,9 +1310,10 @@ mod tests {
             || {},
         )
         .unwrap();
-        assert!(String::from_utf8(help)
-            .unwrap()
-            .contains("Usage: herdr agent rename <TARGET> <NAME>|--clear"));
+        assert!(String::from_utf8(help).unwrap().contains(&format!(
+            "Usage: {} agent rename <TARGET> <NAME>|--clear",
+            crate::EXECUTABLE_NAME
+        )));
     }
 
     #[test]

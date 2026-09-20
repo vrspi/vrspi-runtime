@@ -12,6 +12,10 @@ pub(crate) use agents::{AGENT_START_SETTLE_DELAY, MAX_AGENT_START_TIMEOUT};
 mod api;
 mod api_helpers;
 pub(crate) use api_helpers::limit_snapshot_lines;
+mod collaboration;
+mod company;
+mod rooms;
+pub(crate) use collaboration::collaboration_api_error;
 mod config_io;
 mod creation;
 mod git_refresh;
@@ -130,6 +134,13 @@ pub struct App {
     pub(crate) last_pane_click: Option<PaneClickState>,
     pub(crate) pending_url_click_sources: HashSet<InputSourceId>,
     pub(crate) next_resize_poll: Instant,
+    /// Where task commands are made durable before any caller is answered.
+    /// Absent in no-session mode, which has no session directory to write to.
+    ///
+    /// Read through `apply_task_mutation`; the API methods that call it are
+    /// the next slice, so nothing in-tree reaches it yet.
+    #[allow(dead_code)]
+    pub(crate) task_journal: Option<crate::company::journal::FileJournalSink>,
     pub(crate) next_auto_update_check: Option<Instant>,
     pub(crate) next_agent_manifest_update_check: Option<Instant>,
     pub(crate) update_version_check_enabled: bool,
@@ -280,6 +291,7 @@ fn normalize_theme_name(name: &str) -> String {
 
 fn sibling_theme_names(name: &str) -> (String, String) {
     match normalize_theme_name(name).as_str() {
+        "vrspi" => ("vrspi".to_string(), "catppuccin-latte".to_string()),
         "catppuccin" | "catppuccin-mocha" | "catppuccin-latte" | "latte" | "light" => {
             ("catppuccin".to_string(), "catppuccin-latte".to_string())
         }
@@ -313,7 +325,7 @@ fn theme_runtime_config(
         .theme
         .name
         .clone()
-        .unwrap_or_else(|| "catppuccin".to_string());
+        .unwrap_or_else(|| "vrspi".to_string());
     let (default_dark, default_light) = sibling_theme_names(&manual_name);
     state::ThemeRuntimeConfig {
         manual_name,
@@ -345,7 +357,7 @@ fn resolve_palette_for_theme_name(
             fallback = fallback_name,
             "unknown theme, falling back"
         );
-        state::Palette::from_name(fallback_name).unwrap_or_else(state::Palette::catppuccin)
+        state::Palette::from_name(fallback_name).unwrap_or_else(state::Palette::vrspi)
     });
 
     if let Some(custom) = &runtime.custom {
@@ -369,7 +381,7 @@ fn resolve_effective_theme(
         match appearance.unwrap_or(crate::terminal_theme::HostAppearance::Dark) {
             crate::terminal_theme::HostAppearance::Dark => (
                 &runtime.dark_name,
-                "catppuccin",
+                "vrspi",
                 runtime
                     .custom
                     .as_ref()
@@ -385,7 +397,7 @@ fn resolve_effective_theme(
             ),
         }
     } else {
-        (&runtime.manual_name, "catppuccin", None)
+        (&runtime.manual_name, "vrspi", None)
     };
     (
         resolve_palette_for_theme_name(name, fallback, runtime, mode_custom),
@@ -410,6 +422,8 @@ impl App {
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
         let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let mut restored_collaboration = crate::collaboration::CollaborationState::default();
+        let mut restored_company = crate::company::CompanyState::default();
         let (
             workspaces,
             active,
@@ -429,6 +443,24 @@ impl App {
                 std::collections::HashSet::new(),
             )
         } else if let Some(snap) = crate::persist::load() {
+            restored_collaboration = snap.collaboration.clone();
+            restored_collaboration.prepare_for_cold_restore();
+            restored_company = snap.company.clone();
+            restored_company.prepare_for_cold_restore();
+            // The snapshot is a cache of the projection; the journal is the
+            // record. Anything committed after the last save is replayed, so
+            // a crash between telling a worker and saving loses nothing.
+            let journal = crate::company::journal::FileJournalSink::for_session();
+            match crate::company::journal::recover(restored_company.tasks_mut(), &journal) {
+                Ok(0) => {}
+                Ok(replayed) => info!(
+                    replayed,
+                    "replayed task journal entries the snapshot had not absorbed"
+                ),
+                Err(err) => {
+                    tracing::warn!(error = %err.message(), "could not replay the task journal")
+                }
+            }
             let history = config
                 .experimental
                 .pane_history
@@ -520,7 +552,10 @@ impl App {
             "using pane scrollback configuration"
         );
 
-        let latest_release_notes = crate::release_notes::load_latest();
+        // Release notes on disk describe upstream Herdr releases; showing them
+        // would advertise an update this fork must not install.
+        let latest_release_notes =
+            crate::release_notes::load_latest().filter(|_| crate::brand::UPSTREAM_UPDATES_ENABLED);
         let update_available = latest_release_notes
             .as_ref()
             .filter(|notes| notes.preview)
@@ -528,7 +563,8 @@ impl App {
         let latest_release_notes_available = latest_release_notes.is_some();
         let update_install_command = crate::update::update_install_command().to_string();
         let startup_product_announcement =
-            crate::product_announcements::load_unseen_for_current_version();
+            crate::product_announcements::load_unseen_for_current_version()
+                .filter(|_| crate::brand::UPSTREAM_UPDATES_ENABLED);
 
         let mode = if config.should_show_onboarding() {
             state::Mode::Onboarding
@@ -551,6 +587,8 @@ impl App {
 
         let mut state = AppState {
             terminals: std::collections::HashMap::new(),
+            collaboration: restored_collaboration,
+            company: restored_company,
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
@@ -578,11 +616,13 @@ impl App {
             requested_new_tab_name: None,
             pending_workspace_create_cwd: None,
             rename_pane_target: None,
+            rename_lobby_target: None,
             worktree_create: None,
             worktree_open: None,
             worktree_remove: None,
             worktree_directory,
             collapsed_space_keys,
+            collapsed_agent_groups: std::collections::HashSet::new(),
             request_complete_onboarding: false,
             name_input: String::new(),
             name_input_replace_on_type: false,
@@ -599,6 +639,12 @@ impl App {
             }),
             keybind_help: state::KeybindHelpState::default(),
             navigator: state::NavigatorState::default(),
+            lobby_browser: state::LobbyBrowserState::default(),
+            agent_call: None,
+            room_browser: state::RoomBrowserState::default(),
+            request_open_agent_call: false,
+            request_open_room_browser: false,
+            request_new_company_room: None,
             copy_mode: None,
             workspace_scroll: 0,
             agent_panel_scroll: 0,
@@ -607,6 +653,8 @@ impl App {
             mobile_switcher_scroll: 0,
             view: state::ViewState {
                 layout: state::ViewLayout::Desktop,
+                runtime_header_rect: Rect::default(),
+                runtime_footer_rect: Rect::default(),
                 sidebar_rect: Rect::default(),
                 workspace_card_areas: Vec::new(),
                 tab_bar_rect: Rect::default(),
@@ -734,7 +782,8 @@ impl App {
         // and in debug/test builds so local development never mutates the
         // running binary out from under spawned test processes.
         let version_check_enabled =
-            background_update_check_enabled(no_session, config.update.version_check);
+            background_update_check_enabled(no_session, config.update.version_check)
+                && crate::brand::UPSTREAM_UPDATES_ENABLED;
         let manifest_check_enabled =
             background_update_check_enabled(no_session, config.update.manifest_check);
         if version_check_enabled {
@@ -782,6 +831,7 @@ impl App {
             last_pane_click: None,
             pending_url_click_sources: HashSet::new(),
             next_resize_poll: Instant::now() + RESIZE_POLL_INTERVAL,
+            task_journal: (!no_session).then(crate::company::journal::FileJournalSink::for_session),
             next_auto_update_check: version_check_enabled
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
             next_agent_manifest_update_check: manifest_check_enabled
@@ -1070,6 +1120,20 @@ impl App {
             if self.state.request_reload_config {
                 self.state.request_reload_config = false;
                 self.reload_config();
+                needs_render = true;
+            }
+
+            if self.take_open_agent_call_request() {
+                needs_render = true;
+            }
+
+            if std::mem::take(&mut self.state.request_open_room_browser) {
+                self.open_room_browser();
+                needs_render = true;
+            }
+
+            if let Some(ws_idx) = std::mem::take(&mut self.state.request_new_company_room) {
+                self.open_room_creator(ws_idx);
                 needs_render = true;
             }
 
@@ -1921,7 +1985,7 @@ impl App {
             Mode::Copy => {
                 self.handle_copy_mode_key(key);
             }
-            Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => {
+            Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane | Mode::RenameLobby => {
                 self.handle_rename_key_via_api(key_event);
             }
             Mode::NewLinkedWorktree => {
@@ -1962,6 +2026,15 @@ impl App {
             }
             Mode::Navigator => {
                 input::handle_navigator_key(&mut self.state, &self.terminal_runtimes, key_event);
+            }
+            Mode::AgentLobbies => {
+                self.handle_agent_lobbies_key_via_api(key_event);
+            }
+            Mode::AgentCall => {
+                self.handle_agent_call_key(key_event);
+            }
+            Mode::CompanyRooms => {
+                self.handle_room_browser_key(key_event);
             }
             Mode::Terminal => {
                 // Should not be called in terminal mode.
@@ -2821,6 +2894,17 @@ mod tests {
     }
 
     #[test]
+    fn default_theme_is_vrspi_with_manual_choices_preserved() {
+        let config = Config::default();
+        let runtime = theme_runtime_config(&config, false);
+        let (palette, name) = resolve_effective_theme(&runtime, None);
+        assert_eq!(name, "vrspi");
+        assert_eq!(palette, state::Palette::vrspi());
+        assert_eq!(runtime.light_name, "catppuccin-latte");
+        assert_eq!(runtime.dark_name, "vrspi");
+    }
+
+    #[test]
     fn theme_auto_switch_is_opt_in_and_preserves_manual_default() {
         let mut config = Config::default();
         config.theme.name = Some("tokyo-night".to_string());
@@ -2957,18 +3041,20 @@ mod tests {
     }
 
     #[test]
-    fn startup_restores_preview_update_available_from_saved_notes() {
+    fn startup_ignores_saved_upstream_update_notes() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-preview-update-available");
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
-        // Use a bogus far-future version so preview=true regardless of current binary version.
+        // A far-future upstream release would normally surface as "update
+        // ready". Installing it would replace this build with upstream Herdr,
+        // so nothing advertises it.
         crate::release_notes::save_pending("99.99.99", "### Changed\n- One").unwrap();
 
         let app = test_app();
 
-        assert_eq!(app.state.update_available.as_deref(), Some("99.99.99"));
-        assert!(app.state.latest_release_notes_available);
+        assert_eq!(app.state.update_available, None);
+        assert!(!app.state.latest_release_notes_available);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -2985,14 +3071,14 @@ mod tests {
         let app = test_app();
 
         assert_eq!(app.state.update_available, None);
-        assert!(app.state.latest_release_notes_available);
+        assert!(!app.state.latest_release_notes_available);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
-    fn startup_keeps_pending_release_notes_available_without_auto_opening() {
+    fn startup_hides_pending_upstream_release_notes() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-pending-release-notes-no-auto-open");
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -3009,14 +3095,14 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::Navigate);
         assert!(app.state.release_notes.is_none());
-        assert!(app.state.latest_release_notes_available);
+        assert!(!app.state.latest_release_notes_available);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
-    fn startup_still_auto_opens_unseen_product_announcement() {
+    fn startup_does_not_open_upstream_product_announcements() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-product-announcement-auto-open");
         let state_home = path.parent().unwrap().join("state");
@@ -3044,14 +3130,9 @@ mod tests {
 
         let app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
 
-        assert_eq!(app.state.mode, Mode::ProductAnnouncement);
-        assert_eq!(
-            app.state
-                .product_announcement
-                .as_ref()
-                .map(|announcement| announcement.id.as_str()),
-            Some("startup-announcement")
-        );
+        // Upstream announcements describe Herdr, not this build.
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app.state.product_announcement.is_none());
         assert!(app.state.release_notes.is_none());
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
@@ -3453,7 +3534,7 @@ mod tests {
         );
         assert_eq!(
             app.state.config_diagnostic.as_deref(),
-            Some("config.toml; herdr config check")
+            Some(format!("config.toml; {} config check", crate::EXECUTABLE_NAME).as_str())
         );
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
@@ -3518,7 +3599,13 @@ mod tests {
         assert_eq!(app.state.mouse_capture, target_mouse_capture);
         assert_eq!(
             app.state.config_diagnostic.as_deref(),
-            Some("config.toml has unknown keys; herdr config check")
+            Some(
+                format!(
+                    "config.toml has unknown keys; {} config check",
+                    crate::EXECUTABLE_NAME
+                )
+                .as_str()
+            )
         );
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
@@ -3727,7 +3814,11 @@ mod tests {
             .config_diagnostic
             .as_deref()
             .is_some_and(|message| {
-                message == "config.toml invalid; keeping current config; herdr config check"
+                message
+                    == format!(
+                        "config.toml invalid; keeping current config; {} config check",
+                        crate::EXECUTABLE_NAME
+                    )
             }));
         assert!(app.state.toast.is_none());
 
@@ -5054,7 +5145,10 @@ mod tests {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let config_home = unique_temp_path("background-session-save");
         std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
 
         let mut app = test_app();
         app.no_session = false;
@@ -6223,12 +6317,25 @@ last_pane = "prefix+tab"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.confirm_close = false;
-        app.state.context_menu = Some(state::ContextMenuState {
+        let menu = state::ContextMenuState {
             kind: state::ContextMenuKind::Workspace { ws_idx: 1 },
             x: 2,
             y: 2,
-            list: state::MenuListState::new(1),
-        });
+            // Highlight "Close" by name; the menu gains entries over time.
+            list: state::MenuListState::new(
+                state::ContextMenuState {
+                    kind: state::ContextMenuKind::Workspace { ws_idx: 1 },
+                    x: 2,
+                    y: 2,
+                    list: state::MenuListState::new(0),
+                }
+                .items()
+                .iter()
+                .position(|item| *item == "Close")
+                .expect("close entry"),
+            ),
+        };
+        app.state.context_menu = Some(menu);
         app.state.mode = Mode::ContextMenu;
 
         app.route_client_input(b"\r".to_vec());

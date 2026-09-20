@@ -517,10 +517,11 @@ fn render_pane_borders(
         }
         let cell = &mut buf[(x, y)];
         cell.set_symbol(symbol);
-        let color = if focused {
-            app.palette.accent
-        } else {
-            app.palette.overlay0
+        let color = match (app.theme_name.eq_ignore_ascii_case("vrspi"), focused) {
+            (true, true) => app.palette.surface1,
+            (true, false) => app.palette.surface_dim,
+            (false, true) => app.palette.accent,
+            (false, false) => app.palette.overlay0,
         };
         cell.set_style(Style::default().fg(color));
     }
@@ -659,15 +660,94 @@ fn render_pane_border_titles(
     let buf = frame.buffer_mut();
     let area = buf.area;
     for info in pane_infos {
-        if !info.borders.contains(Borders::TOP) || info.rect.width <= 4 {
+        if !info.borders.contains(Borders::TOP)
+            || info.rect.width <= 4
+            || info.rect.y < area.y
+            || info.rect.y >= area.bottom()
+        {
             continue;
         }
-        let Some(title) = ws
+        let terminal = ws
             .pane_state(info.id)
-            .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.border_label(app.show_agent_labels_on_pane_borders))
-            .and_then(|label| pane_border_title(&label, info.rect.width, info.is_focused))
+            .and_then(|pane| app.terminals.get(&pane.attached_terminal_id));
+        // A solid title strip occupies only the already-reserved top border.
+        let strip =
+            Rect::new(info.rect.x + 1, info.rect.y, info.rect.width - 2, 1).intersection(area);
+        for x in strip.x..strip.right() {
+            buf[(x, strip.y)]
+                .set_symbol(" ")
+                .set_style(Style::default().bg(app.palette.panel_bg));
+        }
+        // The call button rides the focused pane only, so this stays a single
+        // extra chip per frame instead of work that scales with pane count.
+        let call_button = (info.is_focused
+            && terminal.is_some_and(|terminal| terminal.is_agent_terminal()))
+        .then(|| super::agent_call::pane_call_button_rect(info.rect))
+        .flatten();
+        let status_end = call_button.map_or(info.rect.right() - 1, |rect| rect.x);
+        let status = terminal
+            .filter(|terminal| terminal.is_agent_terminal())
+            .filter(|_| info.rect.width >= 38)
+            .map(|terminal| {
+                use crate::detect::AgentState;
+                let (label, color) = match terminal.state {
+                    AgentState::Working => ("● working", app.palette.yellow),
+                    AgentState::Idle => ("● idle", app.palette.green),
+                    AgentState::Blocked => ("● blocked", app.palette.red),
+                    AgentState::Unknown => ("· unknown", app.palette.overlay0),
+                };
+                (label, color, label.chars().count() as u16 + 2)
+            });
+        let status_width = status.map_or(0, |(_, _, width)| width);
+        if let Some((label, color, width)) = status {
+            buf.set_stringn(
+                status_end.saturating_sub(width),
+                info.rect.y,
+                label,
+                width as usize,
+                Style::default().fg(color).bg(app.palette.panel_bg),
+            );
+        }
+        let Some(title) = terminal
+            .and_then(|terminal| {
+                if app.show_agent_labels_on_pane_borders {
+                    terminal
+                        .manual_label
+                        .clone()
+                        .or_else(|| terminal.agent_name.clone())
+                        .or_else(|| terminal.border_label(true))
+                } else {
+                    terminal.border_label(false)
+                }
+            })
+            .and_then(|label| {
+                let label = if app.show_agent_labels_on_pane_borders {
+                    terminal
+                        .and_then(|terminal| terminal.effective_known_agent())
+                        .map(|agent| {
+                            let (icon, tool) = match agent {
+                                crate::detect::Agent::Claude => ("✳", "Claude Code"),
+                                crate::detect::Agent::Codex => ("◎", "Codex"),
+                                crate::detect::Agent::Gemini => ("✦", "Gemini CLI"),
+                                _ => ("›", crate::detect::agent_label(agent)),
+                            };
+                            format!("{icon} {label}  {tool}")
+                        })
+                        .unwrap_or(label)
+                } else {
+                    label
+                };
+                let reserved = call_button.map(|rect| rect.width).unwrap_or(0) + status_width;
+                pane_border_title(
+                    &label,
+                    info.rect.width.saturating_sub(reserved),
+                    info.is_focused,
+                )
+            })
         else {
+            if let Some(button) = call_button {
+                render_call_button_cells(buf, area, button, app);
+            }
             continue;
         };
         let y = info.rect.y;
@@ -680,16 +760,20 @@ fn render_pane_border_titles(
             .x
             .saturating_add(info.rect.width)
             .saturating_sub(1)
-            .min(area.x.saturating_add(area.width));
+            .min(area.x.saturating_add(area.width))
+            .saturating_sub(call_button.map(|rect| rect.width).unwrap_or(0) + status_width);
         if start_x >= end_x {
+            if let Some(button) = call_button {
+                render_call_button_cells(buf, area, button, app);
+            }
             continue;
         }
         let color = if info.is_focused {
             app.palette.accent
         } else {
-            app.palette.overlay0
+            app.palette.text
         };
-        let mut style = Style::default().fg(color);
+        let mut style = Style::default().fg(color).bg(app.palette.panel_bg);
         if info.is_focused {
             style = style.add_modifier(Modifier::BOLD);
         }
@@ -700,7 +784,38 @@ fn render_pane_border_titles(
             end_x.saturating_sub(start_x) as usize,
             style,
         );
+        if let Some(button) = call_button {
+            render_call_button_cells(buf, area, button, app);
+        }
     }
+}
+
+/// Draws the focused agent pane's "call agent" chip straight into the buffer,
+/// next to the border title that shares the same row.
+fn render_call_button_cells(
+    buf: &mut ratatui::buffer::Buffer,
+    area: Rect,
+    rect: Rect,
+    app: &AppState,
+) {
+    if rect.y < area.y || rect.y >= area.y.saturating_add(area.height) {
+        return;
+    }
+    let max = area
+        .x
+        .saturating_add(area.width)
+        .saturating_sub(rect.x)
+        .min(rect.width) as usize;
+    buf.set_stringn(
+        rect.x,
+        rect.y,
+        super::agent_call::pane_call_button_label(),
+        max,
+        Style::default()
+            .fg(app.palette.accent)
+            .bg(app.palette.active_row_bg)
+            .add_modifier(Modifier::BOLD),
+    );
 }
 
 fn line_cell_symbol(line: LineCell) -> &'static str {
@@ -960,6 +1075,10 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
 }
 
 pub(super) fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
+    if app.theme_name.eq_ignore_ascii_case("vrspi") {
+        super::runtime_chrome::render_studio_empty(app, frame, area);
+        return;
+    }
     let p = &app.palette;
     let lines = vec![
         Line::from(""),
@@ -1273,6 +1392,58 @@ mod tests {
         assert_eq!(buffer[(2, 2)].style().fg, Some(app.palette.accent));
         assert_eq!(buffer[(2, 1)].symbol(), "│");
         assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.accent));
+    }
+
+    #[test]
+    fn call_button_rides_the_focused_agent_pane_border_only() {
+        let mut app = AppState::test_new();
+        app.mode = Mode::Terminal;
+        app.view.terminal_area = Rect::new(0, 0, 80, 6);
+        let mut ws = Workspace::test_new("call-button");
+        let right = ws.test_split(ratatui::layout::Direction::Horizontal);
+        let left = ws.tabs[0].root_pane;
+        app.workspaces = vec![ws];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        for pane_id in [left, right] {
+            let terminal_id = app.workspaces[0]
+                .terminal_id(pane_id)
+                .cloned()
+                .expect("terminal");
+            app.terminals
+                .get_mut(&terminal_id)
+                .expect("state")
+                .set_agent_name("pi".into());
+        }
+
+        let rects = [Rect::new(0, 0, 40, 6), Rect::new(40, 0, 40, 6)];
+        app.view.pane_infos = [left, right]
+            .into_iter()
+            .zip(rects)
+            .map(|(id, rect)| PaneInfo {
+                id,
+                rect,
+                inner_rect: Rect::default(),
+                scrollbar_rect: None,
+                borders: Borders::ALL,
+                is_focused: id == left,
+            })
+            .collect();
+
+        let ws = &app.workspaces[0];
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 6)).unwrap();
+        terminal
+            .draw(|frame| render_view_pane_borders(&app, ws, frame))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let row_text = |range: std::ops::Range<u16>| {
+            range.map(|x| buffer[(x, 0)].symbol()).collect::<String>()
+        };
+
+        let label = super::super::agent_call::pane_call_button_label().trim();
+        assert!(row_text(0..40).contains(label));
+        assert!(!row_text(40..80).contains(label));
     }
 
     #[test]

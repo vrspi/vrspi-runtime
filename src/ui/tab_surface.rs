@@ -304,7 +304,10 @@ mod tests {
         assert_eq!(frame.hyperlinks, vec![uri.to_owned()]);
         assert_eq!(
             frame_digest(&frame),
-            "a7c21fa42305a41231c7ae254f264f6ef923f46301d8fc4cd35ab6dfdd651b6b"
+            // Vrspi section labels and reserved header strips. Changed when the
+            // agent lobby shortcut was hidden; re-enabling SHOW_AGENT_LOBBIES
+            // reproduces the previous digest exactly.
+            "84aa587edb7a92306cd25bbc98e4eb1435a53639e1b652f2495c380576f86c7a"
         );
     }
 
@@ -321,7 +324,10 @@ mod tests {
         assert_eq!(frame.cursor, None);
         assert_eq!(
             frame_digest(&frame),
-            "295608a66067f1e1f066c0adb3cf427e8a2d68bba8f68949fb72d464dcd8baab"
+            // The mobile switcher lists menu entries. Changed when "agent
+            // lobbies" left the menu; re-enabling SHOW_AGENT_LOBBIES reproduces
+            // the previous digest exactly.
+            "633c516a350e9182a853d79185c3b33c4f97006e542d695cd8f45cc55a0d736e"
         );
     }
 }

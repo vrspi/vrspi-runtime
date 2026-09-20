@@ -391,7 +391,11 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         }
         let active = idx == ws.active_tab;
         let style = if active {
-            let base = Style::default().fg(panel_contrast_fg(p)).bg(p.accent);
+            let base = if app.theme_name.eq_ignore_ascii_case("vrspi") {
+                Style::default().fg(p.panel_bg).bg(p.accent)
+            } else {
+                Style::default().fg(panel_contrast_fg(p)).bg(p.accent)
+            };
             if tab.is_auto_named() {
                 base
             } else {

@@ -44,6 +44,9 @@ pub(crate) struct HandoffManifest {
     /// Absent from manifests written before this field existed.
     #[serde(default)]
     pub api_window_title: Option<String>,
+    /// Live-session agent mailbox state. Absent from older handoff manifests.
+    #[serde(default)]
+    pub collaboration: crate::collaboration::CollaborationState,
 }
 
 #[cfg(unix)]
@@ -87,10 +90,12 @@ pub(crate) fn spawn_handoff_import(
         .stderr(std::process::Stdio::null());
     if crate::session::explicit_session_requested() {
         // The import child no longer has the original `--session` argument, so
-        // stale socket overrides must not mask the inherited HERDR_SESSION.
+        // Stale socket overrides must not mask the inherited session name.
         command
             .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
-            .env_remove(crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR);
+            .env_remove(crate::api::LEGACY_SOCKET_PATH_ENV_VAR)
+            .env_remove(crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR)
+            .env_remove(crate::server::socket_paths::LEGACY_CLIENT_SOCKET_PATH_ENV_VAR);
     }
     crate::platform::detach_server_daemon_command(&mut command);
     command.spawn().map_err(|err| {
@@ -310,6 +315,7 @@ pub(crate) fn manifest_for(
     expected_protocol: Option<u32>,
     expected_version: Option<String>,
     api_window_title: Option<String>,
+    collaboration: crate::collaboration::CollaborationState,
 ) -> HandoffManifest {
     HandoffManifest {
         version: HANDOFF_VERSION,
@@ -320,6 +326,7 @@ pub(crate) fn manifest_for(
         snapshot,
         panes,
         api_window_title,
+        collaboration,
     }
 }
 
@@ -485,6 +492,8 @@ mod tests {
             sidebar_width: None,
             sidebar_section_split: None,
             collapsed_space_keys: Default::default(),
+            collaboration: Default::default(),
+            company: Default::default(),
         }
     }
 
@@ -496,6 +505,7 @@ mod tests {
             None,
             None,
             Some("deploying".to_string()),
+            crate::collaboration::CollaborationState::default(),
         );
 
         assert_eq!(manifest.api_window_title.as_deref(), Some("deploying"));
@@ -509,6 +519,7 @@ mod tests {
             None,
             None,
             Some("deploying".to_string()),
+            crate::collaboration::CollaborationState::default(),
         );
         let mut value = serde_json::to_value(&manifest).expect("manifest should serialize");
         value
@@ -520,5 +531,29 @@ mod tests {
             serde_json::from_value(value).expect("an older manifest should still load");
 
         assert!(older.api_window_title.is_none());
+    }
+
+    #[test]
+    fn a_manifest_written_before_collaboration_state_still_loads() {
+        let manifest = manifest_for(
+            empty_snapshot(),
+            Vec::new(),
+            None,
+            None,
+            None,
+            crate::collaboration::CollaborationState::default(),
+        );
+        let mut value = serde_json::to_value(&manifest).expect("manifest should serialize");
+        value
+            .as_object_mut()
+            .expect("manifest should be a json object")
+            .remove("collaboration");
+
+        let older: HandoffManifest =
+            serde_json::from_value(value).expect("an older manifest should still load");
+        assert_eq!(
+            older.collaboration,
+            crate::collaboration::CollaborationState::default()
+        );
     }
 }

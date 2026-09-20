@@ -69,6 +69,24 @@ herdr agent rename w1:p2 reviewer
 | エージェントの対話 UI にキーを送る | `agent send-keys` |
 | エージェントのライフサイクル状態を待つ | `agent wait` |
 
+## エージェント間メッセージ
+
+管理下のエージェントは `HERDR_ENV=1`、`HERDR_PANE_ID`、ローカル socket を継承します。`herdr agent self` はその環境を現在のエージェントと、不変の collaboration `instance_id` に解決します。instance はペイン移動や rename では維持され、エージェントの終了または置換で変わります。
+
+別のエージェントのターミナル UI に入力を注入せず連携するには、保持型 mailbox を使います:
+
+```bash
+herdr agent message send reviewer "auth.rs をレビューして acknowledge してください"
+herdr agent message inbox --unacked
+herdr agent message ack msg_1
+herdr agent message wait --after 12 --timeout 120000
+herdr agent message wait msg_1 --until acknowledged --timeout 120000
+herdr agent lobby connect reviewer
+herdr agent lobby list
+```
+
+受信メッセージを読むと `observed` になり、`ack` は受信者だけが行えます。送信者は自動注入または acknowledge の前なら revoke できます。`agent lobby connect` は 2 つの不変なエージェント instance を lobby に接続し、idle 時の自動配信を有効にします。TUI ではエージェントペインを右クリックして **Connect workspace agents** を選び、global menu の **agent lobbies** で lobby と active/offline member を確認できます。**company room** は host が所有し、1 つの workspace に紐づくチームです。`vrspi room create` で作成し、`room member add` で席を追加、`room member bind` で実行中のエージェントを割り当てます。投稿は 1 件のイベントとして保存され、**明示的に宛先指定されたメンバーにのみ**配信されます。`@Codex` と書けば Codex だけが起動し、他のメンバーはモデル呼び出しなしで後から読めます。コードフェンス・引用・バッククォート内のメンションは無効です。global menu の **company rooms** で room ブラウザを開けます。`↑`/`↓` で room 選択、`tab` または `1`/`2`/`3` で conversation / members / memory の切り替え、`u`/`d` でスクロール、`p` で投稿、`esc` で閉じます。会話タブは各投稿が実際に誰を起動したかを表示し、誰も起動しなかった投稿は room note と明示されます。members タブは実行中エージェントが紐づいている席を示し、未紐づけの席には配信されません。各 objective には起動回数の上限(既定 12)があり、返信も同じ上限を共有します。上限の延長は host のみ可能です。room memory は改訂管理された検索可能な知識ベースで、検索結果は最大 5 件の要約のみを返します。エージェントが書いた record は host が承認するまで `proposed` のままです。**agent lobbies** では `J`/`K` で会話内のカーソルを移動し、`f` でそのターン以降、`F` で会話全体を別エージェントへ転送できます。入力したプロンプトは `--- forwarded with this request ---` の下に追記され、転送内容と操作者の指示を区別できます。16 KiB 上限を超える場合は古いターンから省略され、送信前に省略件数が表示されます。lobby は workspace 単位の **space** か、2 エージェント間の **direct** のいずれかです。`x` で退出、`D` で削除でき、rename/remove/delete は lobby のオーナーのみ実行できます。受信側の incarnation が失われたターンは `delivered` ではなく `orphaned` と表示されます。フォーカス中のエージェントペインの上ボーダーにある **⇄ call agent** ボタン、または右クリックメニューの **Call another agent** を使うと、相手を選んでプロンプトを書くだけで lobby 接続と送信をまとめて実行できます。`↑` `↓` で選択、`↵` で次へ進んで送信、`alt+↵` で改行、`^b` で戻る、`esc` で閉じます。相手が idle ならすぐに、working なら idle になった時点で配信されます。自動配信は 1 回の idle cycle に 1 メッセージだけを JSON escape された runtime envelope として送ります。
+
 `agent prompt` はテキストを送信し、短い遅延の後にエンコード済み Enter を送信します。ターミナルの現在の bracketed paste モードを尊重します。working 中のエージェントにも送信できます。エージェントがすでに `blocked` の場合は、ターミナル入力を送信せずに `agent_blocked` を返します。ダイアログを確認し、意図した応答には `agent send-keys` を使ってください。`esc`、`up`、`enter`、`ctrl+c` のような操作には `agent send-keys` を使います。`escape` も `esc` のエイリアスとして使えます。意図的に生のターミナルを操作したい場合は、ペイン入力コマンドを使ってください。
 
 ペイン入力は、現在のプロセスに関係なくターミナルを指定します。エージェント入力はライブエージェントを解決し、そのエージェントがペインを制御しなくなっていれば操作を拒否します。

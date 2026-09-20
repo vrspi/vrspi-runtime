@@ -156,7 +156,7 @@ jobs:
       - name: Package artifact
         if: runner.os != 'Windows'
         shell: bash
-        run: cp target/${{ matrix.target }}/release/herdr ${{ matrix.name }}
+        run: cp target/${{ matrix.target }}/release/vrspi ${{ matrix.name }}
 
       - name: Package artifact
         if: runner.os == 'Windows'
@@ -166,7 +166,7 @@ jobs:
           $package = Join-Path $env:RUNNER_TEMP "Microsoft.Windows.Console.ConPTY.nupkg"
           $stage = Join-Path $env:RUNNER_TEMP "herdr-windows-x86_64"
           .\scripts\package_windows_conpty.ps1 `
-            -HerdrExe target\${{ matrix.target }}\release\herdr.exe `
+            -HerdrExe target\${{ matrix.target }}\release\vrspi.exe `
             -PackagePath $package `
             -StageDir $stage `
             -OutputPath ${{ matrix.name }}

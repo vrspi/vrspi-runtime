@@ -121,7 +121,9 @@ fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) 
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
@@ -155,7 +157,9 @@ fn spawn_client_process(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("client");
     cmd.env("HERDR_DISABLE_SOUND", "1");
     cmd.env("XDG_CONFIG_HOME", config_home);
@@ -763,7 +767,8 @@ fn frame_contains_text(frame: &FrameWire, needle: &str) -> bool {
 fn agent_panel_starts_with(frame: &FrameWire, agent_label: &str) -> bool {
     frame_text(frame)
         .lines()
-        .skip_while(|line| !line.contains("agents"))
+        // Sidebar agent-panel header label.
+        .skip_while(|line| !line.contains("02 / AGENTS"))
         .skip(1)
         .find(|line| line.contains("agent-"))
         .is_some_and(|line| line.contains(agent_label))
@@ -877,7 +882,8 @@ fn non_foreground_client_render_preserves_agent_panel_scroll() {
     let (reached_bottom, setup_frames) = wait_for_frame_matching_with_snapshots(
         &mut setup_client,
         Duration::from_secs(3),
-        |frame| agent_panel_starts_with(frame, "agent-16"),
+        // The two-row masthead leaves one fewer two-line agent entry visible.
+        |frame| agent_panel_starts_with(frame, "agent-17"),
     )
     .expect("setup frame decoding should succeed");
     assert!(
@@ -893,7 +899,7 @@ fn non_foreground_client_render_preserves_agent_panel_scroll() {
     let mut probe = connect_raw_client(&client_socket, 106, 40);
     let (started_at_tall_limit, initial_frames) =
         wait_for_frame_matching_with_snapshots(&mut probe, Duration::from_secs(3), |frame| {
-            agent_panel_starts_with(frame, "agent-10")
+            agent_panel_starts_with(frame, "agent-11")
         })
         .expect("initial probe frame decoding should succeed");
     assert!(
@@ -906,7 +912,7 @@ fn non_foreground_client_render_preserves_agent_panel_scroll() {
     send_client_input(&mut probe, wheel_down);
     let (scrolled, probe_frames) =
         wait_for_frame_matching_with_snapshots(&mut probe, Duration::from_secs(3), |frame| {
-            agent_panel_starts_with(frame, "agent-11")
+            agent_panel_starts_with(frame, "agent-12")
         })
         .expect("probe frame decoding should succeed");
     assert!(

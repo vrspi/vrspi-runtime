@@ -7,7 +7,8 @@ use interprocess::local_socket::traits::Stream as _;
 
 use crate::ipc::LocalStream;
 
-pub const SESSION_ENV_VAR: &str = "HERDR_SESSION";
+pub const SESSION_ENV_VAR: &str = "VRSPI_SESSION";
+pub const LEGACY_SESSION_ENV_VAR: &str = "HERDR_SESSION";
 pub const DEFAULT_SESSION_NAME: &str = "default";
 
 const MAX_SESSION_NAME_LEN: usize = 64;
@@ -42,10 +43,16 @@ pub fn configure_from_args(args: &[String]) -> Result<Vec<String>, String> {
             return Ok(args.to_vec());
         }
         let Some(name) = args.get(3) else {
-            return Err("usage: herdr session attach <name>".to_string());
+            return Err(format!(
+                "usage: {} session attach <name>",
+                crate::EXECUTABLE_NAME
+            ));
         };
         if args.len() != 4 {
-            return Err("usage: herdr session attach <name>".to_string());
+            return Err(format!(
+                "usage: {} session attach <name>",
+                crate::EXECUTABLE_NAME
+            ));
         }
         apply_explicit_name(name)?;
         return Ok(cleaned);
@@ -79,11 +86,16 @@ pub fn configure_from_args(args: &[String]) -> Result<Vec<String>, String> {
 
     if let Some(session) = requested_session {
         apply_explicit_name(&session)?;
-    } else if std::env::var_os(crate::api::SOCKET_PATH_ENV_VAR).is_some() {
+    } else if crate::brand::env_var_os(
+        crate::api::SOCKET_PATH_ENV_VAR,
+        crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+    )
+    .is_some()
+    {
         EXPLICIT_SESSION_REQUESTED.store(false, Ordering::Relaxed);
-    } else if let Ok(session) = std::env::var(SESSION_ENV_VAR) {
+    } else if let Ok(session) = crate::brand::env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR) {
         if normalize_name(&session)?.is_none() {
-            std::env::remove_var(SESSION_ENV_VAR);
+            crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         }
         EXPLICIT_SESSION_REQUESTED.store(false, Ordering::Relaxed);
     } else {
@@ -94,7 +106,7 @@ pub fn configure_from_args(args: &[String]) -> Result<Vec<String>, String> {
 }
 
 pub fn active_name() -> Option<String> {
-    std::env::var(SESSION_ENV_VAR)
+    crate::brand::env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR)
         .ok()
         .filter(|name| name != DEFAULT_SESSION_NAME)
         .filter(|name| validate_name(name).is_ok())
@@ -102,8 +114,8 @@ pub fn active_name() -> Option<String> {
 
 pub fn local_attach_command() -> String {
     match active_name() {
-        Some(name) => format!("herdr session attach {name}"),
-        None => "herdr".to_string(),
+        Some(name) => format!("{} session attach {name}", crate::EXECUTABLE_NAME),
+        None => crate::EXECUTABLE_NAME.to_string(),
     }
 }
 
@@ -113,15 +125,15 @@ pub fn local_stop_command() -> String {
 
 pub fn stop_command_for(name: Option<&str>) -> String {
     match name {
-        Some(name) => format!("herdr session stop {name}"),
-        None => "herdr server stop".to_string(),
+        Some(name) => format!("{} session stop {name}", crate::EXECUTABLE_NAME),
+        None => format!("{} server stop", crate::EXECUTABLE_NAME),
     }
 }
 
 pub fn restart_after_update_guidance(stop_command: &str, attach_command: Option<&str>) -> String {
     let restart = match attach_command {
         Some(command) => format!("Run `{stop_command}`, then run `{command}` again."),
-        None => format!("Run `{stop_command}`, then restart Herdr with the same socket override."),
+        None => format!("Run `{stop_command}`, then restart Vrspi with the same socket override."),
     };
     format!(
         "Stop the old server to use the new version.\nStopping exits pane processes.\n{restart}"
@@ -130,12 +142,16 @@ pub fn restart_after_update_guidance(stop_command: &str, attach_command: Option<
 
 pub fn active_restart_after_update_guidance() -> String {
     if !explicit_session_requested() {
-        if let Ok(socket_path) = std::env::var(crate::api::SOCKET_PATH_ENV_VAR) {
+        if let Ok(socket_path) = crate::brand::env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        ) {
             return restart_after_update_guidance(
                 &format!(
-                    "{}={} herdr server stop",
+                    "{}={} {} server stop",
                     crate::api::SOCKET_PATH_ENV_VAR,
-                    socket_path
+                    socket_path,
+                    crate::EXECUTABLE_NAME,
                 ),
                 None,
             );
@@ -174,7 +190,10 @@ pub fn active_api_socket_path() -> PathBuf {
     if explicit_session_requested() {
         return api_socket_path_for(active_name().as_deref());
     }
-    if let Ok(path) = std::env::var(crate::api::SOCKET_PATH_ENV_VAR) {
+    if let Ok(path) = crate::brand::env_var(
+        crate::api::SOCKET_PATH_ENV_VAR,
+        crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+    ) {
         return PathBuf::from(path);
     }
     api_socket_path_for(active_name().as_deref())
@@ -449,8 +468,9 @@ fn apply_explicit_name(name: &str) -> Result<(), String> {
     let session = normalize_name(name)?;
     if let Some(session) = session {
         std::env::set_var(SESSION_ENV_VAR, session);
+        std::env::remove_var(LEGACY_SESSION_ENV_VAR);
     } else {
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
     }
     EXPLICIT_SESSION_REQUESTED.store(true, Ordering::Relaxed);
     Ok(())
@@ -620,7 +640,7 @@ mod tests {
     #[test]
     fn configure_from_args_removes_global_session_option() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
         let args = vec![
             "herdr".to_string(),
@@ -635,14 +655,14 @@ mod tests {
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("work"));
         assert!(explicit_session_requested());
         assert_eq!(cleaned, vec!["herdr", "workspace", "list"]);
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
     }
 
     #[test]
     fn configure_from_args_accepts_equals_form() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
         let args = vec![
             "herdr".to_string(),
@@ -656,14 +676,14 @@ mod tests {
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("api"));
         assert!(explicit_session_requested());
         assert_eq!(cleaned, vec!["herdr", "server", "stop"]);
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
     }
 
     #[test]
     fn configure_from_args_preserves_child_session_option_after_separator() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
         let args = vec![
             "herdr".to_string(),
@@ -686,7 +706,7 @@ mod tests {
     #[test]
     fn configure_from_args_preserves_child_session_equals_option_after_separator() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
         let args = vec![
             "herdr".to_string(),
@@ -723,15 +743,18 @@ mod tests {
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("work"));
         assert!(explicit_session_requested());
         assert_eq!(cleaned, vec!["herdr"]);
-        std::env::remove_var(SESSION_ENV_VAR);
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
         clear_explicit_session_for_test();
     }
 
     #[test]
     fn configure_from_args_leaves_session_attach_help_for_cli_dispatch() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
         let args = vec![
             "herdr".to_string(),
@@ -775,9 +798,12 @@ mod tests {
                 .join("herdr.sock")
         );
         std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
     }
 
     #[test]
@@ -796,7 +822,7 @@ mod tests {
         assert_eq!(cleaned, vec!["herdr", "workspace", "list"]);
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("env-session"));
         assert!(!explicit_session_requested());
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
     }
 
     #[test]
@@ -805,7 +831,10 @@ mod tests {
         let config_home =
             std::env::temp_dir().join(format!("herdr-env-session-default-{}", std::process::id()));
         std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
         std::env::set_var(SESSION_ENV_VAR, DEFAULT_SESSION_NAME);
         EXPLICIT_SESSION_REQUESTED.store(true, Ordering::Relaxed);
         let args = vec![
@@ -826,17 +855,20 @@ mod tests {
                 .join("herdr.sock")
         );
         std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(SESSION_ENV_VAR);
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
         clear_explicit_session_for_test();
     }
 
     #[test]
     fn local_attach_command_uses_default_launch_for_default_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
 
-        assert_eq!(local_attach_command(), "herdr");
+        assert_eq!(local_attach_command(), "vrspi");
     }
 
     #[test]
@@ -844,19 +876,19 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         std::env::set_var(SESSION_ENV_VAR, "work");
 
-        assert_eq!(local_attach_command(), "herdr session attach work");
+        assert_eq!(local_attach_command(), "vrspi session attach work");
 
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
     }
 
     #[test]
     fn local_stop_command_uses_server_stop_for_default_session() {
         let _guard = env_lock().lock().unwrap();
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
 
-        assert_eq!(local_stop_command(), "herdr server stop");
+        assert_eq!(local_stop_command(), "vrspi server stop");
 
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
     }
 
     #[test]
@@ -864,19 +896,19 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         std::env::set_var(SESSION_ENV_VAR, "work");
 
-        assert_eq!(local_stop_command(), "herdr session stop work");
+        assert_eq!(local_stop_command(), "vrspi session stop work");
 
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
     }
 
     #[test]
     fn restart_after_update_guidance_names_stop_and_attach_commands() {
         assert_eq!(
             restart_after_update_guidance(
-                "herdr session stop work",
-                Some("herdr session attach work")
+                "vrspi session stop work",
+                Some("vrspi session attach work")
             ),
-            "Stop the old server to use the new version.\nStopping exits pane processes.\nRun `herdr session stop work`, then run `herdr session attach work` again."
+            "Stop the old server to use the new version.\nStopping exits pane processes.\nRun `vrspi session stop work`, then run `vrspi session attach work` again."
         );
     }
 
@@ -884,15 +916,18 @@ mod tests {
     fn active_restart_after_update_guidance_respects_socket_override() {
         let _guard = env_lock().lock().unwrap();
         std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-herdr.sock");
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
 
         assert_eq!(
             active_restart_after_update_guidance(),
-            "Stop the old server to use the new version.\nStopping exits pane processes.\nRun `HERDR_SOCKET_PATH=/tmp/custom-herdr.sock herdr server stop`, then restart Herdr with the same socket override."
+            "Stop the old server to use the new version.\nStopping exits pane processes.\nRun `VRSPI_SOCKET_PATH=/tmp/custom-herdr.sock vrspi server stop`, then restart Vrspi with the same socket override."
         );
 
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
     }
 
     #[test]
@@ -916,9 +951,12 @@ mod tests {
                 .join("herdr.sock")
         );
         std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
     }
 
     #[test]
@@ -933,9 +971,12 @@ mod tests {
             PathBuf::from("/tmp/explicit.sock")
         );
 
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
     }
 
     #[test]
@@ -957,9 +998,12 @@ mod tests {
         assert_eq!(active_api_socket_path(), PathBuf::from("/tmp/herdr.sock"));
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("bad/name"));
 
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
     }
 
     #[cfg(unix)]
@@ -1044,7 +1088,7 @@ mod tests {
         std::fs::create_dir_all(sessions_dir.join(DEFAULT_SESSION_NAME)).unwrap();
         std::fs::create_dir_all(sessions_dir.join("work")).unwrap();
         std::env::set_var("XDG_CONFIG_HOME", &config_home);
-        std::env::remove_var(SESSION_ENV_VAR);
+        crate::brand::remove_env_var(SESSION_ENV_VAR, LEGACY_SESSION_ENV_VAR);
         clear_explicit_session_for_test();
 
         let sessions = list_sessions().unwrap();

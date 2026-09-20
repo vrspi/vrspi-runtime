@@ -97,9 +97,12 @@ fn schema_summary_text() -> std::io::Result<String> {
 }
 
 fn print_api_help() {
-    eprintln!("herdr api commands:");
-    eprintln!("  herdr api snapshot");
-    eprintln!("  herdr api schema [--json | --output PATH]");
+    eprintln!("{name} api commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} api snapshot", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} api schema [--json | --output PATH]",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 fn print_api_schema_help() {

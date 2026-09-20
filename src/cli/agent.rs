@@ -1,9 +1,13 @@
 use std::time::{Duration, Instant};
 
 use crate::api::schema::{
-    AgentPromptParams, AgentPromptWaitOptions, AgentReadParams, AgentRenameParams,
-    AgentSendKeysParams, AgentStartParams, AgentTarget, AgentWaitParams, EmptyParams, ErrorBody,
-    ErrorResponse, Method, PaneProcessInfoParams, PaneTarget, ReadFormat, ReadSource, Request,
+    AgentLobbyConnectParams, AgentLobbyListParams, AgentLobbyRemoveMemberParams,
+    AgentLobbyRenameParams, AgentLobbyTargetParams, AgentMessageBox, AgentMessageListParams,
+    AgentMessageSendParams, AgentMessageState, AgentMessageTargetParams, AgentMessageWaitParams,
+    AgentMessageWaitSelector, AgentPromptParams, AgentPromptWaitOptions, AgentReadParams,
+    AgentRenameParams, AgentSelfParams, AgentSendKeysParams, AgentStartParams, AgentTarget,
+    AgentWaitParams, EmptyParams, ErrorBody, ErrorResponse, Method, PaneProcessInfoParams,
+    PaneTarget, ReadFormat, ReadSource, Request,
 };
 
 const AGENT_START_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -24,6 +28,9 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
         "rename" => agent_rename(&args[1..]),
         "focus" => agent_focus(&args[1..]),
         "wait" => agent_wait(&args[1..]),
+        "self" => agent_self(&args[1..]),
+        "message" => agent_message(&args[1..]),
+        "lobby" => agent_lobby(&args[1..]),
         "attach" => agent_attach(&args[1..]),
         "start" => agent_start(&args[1..]),
         "explain" => agent_explain(&args[1..]),
@@ -36,6 +43,369 @@ pub(super) fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
             Ok(2)
         }
     }
+}
+
+fn agent_lobby(args: &[String]) -> std::io::Result<i32> {
+    let caller_pane_id = match caller_pane_id() {
+        Ok(value) => value,
+        Err(code) => return Ok(code),
+    };
+    let method = match args {
+        [action] if action == "list" => {
+            Method::AgentLobbyList(AgentLobbyListParams { caller_pane_id })
+        }
+        [action, target] if action == "connect" => {
+            Method::AgentLobbyConnect(AgentLobbyConnectParams {
+                caller_pane_id,
+                target: target.clone(),
+            })
+        }
+        [action, lobby_id] if action == "leave" => {
+            Method::AgentLobbyLeave(AgentLobbyTargetParams {
+                caller_pane_id,
+                lobby_id: lobby_id.clone(),
+            })
+        }
+        [action, lobby_id] if action == "delete" => {
+            Method::AgentLobbyDelete(AgentLobbyTargetParams {
+                caller_pane_id,
+                lobby_id: lobby_id.clone(),
+            })
+        }
+        [action, lobby_id, label] if action == "rename" => {
+            Method::AgentLobbyRename(AgentLobbyRenameParams {
+                caller_pane_id,
+                lobby_id: lobby_id.clone(),
+                label: label.clone(),
+            })
+        }
+        [action, lobby_id, member_instance_id] if action == "remove" => {
+            Method::AgentLobbyRemove(AgentLobbyRemoveMemberParams {
+                caller_pane_id,
+                lobby_id: lobby_id.clone(),
+                member_instance_id: member_instance_id.clone(),
+            })
+        }
+        [action] if matches!(action.as_str(), "help" | "--help" | "-h") => {
+            print_agent_lobby_help();
+            return Ok(0);
+        }
+        _ => {
+            print_agent_lobby_help();
+            return Ok(2);
+        }
+    };
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:lobby".into(),
+        method,
+    })?)
+}
+
+fn agent_self(args: &[String]) -> std::io::Result<i32> {
+    if !args.is_empty() {
+        eprintln!("usage: herdr agent self");
+        return Ok(2);
+    }
+    let caller_pane_id = match caller_pane_id() {
+        Ok(value) => value,
+        Err(code) => return Ok(code),
+    };
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:self".into(),
+        method: Method::AgentSelf(AgentSelfParams { caller_pane_id }),
+    })?)
+}
+
+fn agent_message(args: &[String]) -> std::io::Result<i32> {
+    match args.first().map(String::as_str) {
+        Some("send") => agent_message_send(&args[1..]),
+        Some("inbox") => agent_message_list(&args[1..], AgentMessageBox::Inbox),
+        Some("outbox") => agent_message_list(&args[1..], AgentMessageBox::Outbox),
+        Some("get") => agent_message_target(&args[1..], "get"),
+        Some("ack") => agent_message_target(&args[1..], "ack"),
+        Some("revoke") => agent_message_target(&args[1..], "revoke"),
+        Some("wait") => agent_message_wait(&args[1..]),
+        Some("help" | "--help" | "-h") => {
+            print_agent_message_help();
+            Ok(0)
+        }
+        _ => {
+            print_agent_message_help();
+            Ok(2)
+        }
+    }
+}
+
+fn agent_message_send(args: &[String]) -> std::io::Result<i32> {
+    let Some(target) = args.first() else {
+        eprintln!("usage: herdr agent message send <target> <text> [--reply-to ID]");
+        return Ok(2);
+    };
+    let Some(body) = args.get(1) else {
+        eprintln!("usage: herdr agent message send <target> <text> [--reply-to ID]");
+        return Ok(2);
+    };
+    let mut reply_to = None;
+    let mut index = 2;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--reply-to" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --reply-to");
+                    return Ok(2);
+                };
+                reply_to = Some(value.clone());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+    let caller_pane_id = match caller_pane_id() {
+        Ok(value) => value,
+        Err(code) => return Ok(code),
+    };
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:message:send".into(),
+        method: Method::AgentMessageSend(AgentMessageSendParams {
+            caller_pane_id,
+            target: target.clone(),
+            body: body.clone(),
+            reply_to,
+            client_nonce: None,
+        }),
+    })?)
+}
+
+fn agent_message_list(args: &[String], mailbox: AgentMessageBox) -> std::io::Result<i32> {
+    let mut after_sequence = 0;
+    let mut limit = None;
+    let mut unacknowledged_only = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--after" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --after");
+                    return Ok(2);
+                };
+                after_sequence = super::parse_u64_flag("--after", value)?;
+                index += 2;
+            }
+            "--limit" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --limit");
+                    return Ok(2);
+                };
+                limit = Some(super::parse_u32_flag("--limit", value)?);
+                index += 2;
+            }
+            "--unacked" => {
+                unacknowledged_only = true;
+                index += 1;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+    let caller_pane_id = match caller_pane_id() {
+        Ok(value) => value,
+        Err(code) => return Ok(code),
+    };
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:message:list".into(),
+        method: Method::AgentMessageList(AgentMessageListParams {
+            caller_pane_id,
+            mailbox,
+            after_sequence,
+            limit,
+            unacknowledged_only,
+        }),
+    })?)
+}
+
+fn agent_message_target(args: &[String], action: &str) -> std::io::Result<i32> {
+    let [message_id] = args else {
+        eprintln!("usage: herdr agent message {action} <id>");
+        return Ok(2);
+    };
+    let caller_pane_id = match caller_pane_id() {
+        Ok(value) => value,
+        Err(code) => return Ok(code),
+    };
+    let params = AgentMessageTargetParams {
+        caller_pane_id,
+        message_id: message_id.clone(),
+    };
+    let method = match action {
+        "get" => Method::AgentMessageGet(params),
+        "ack" => Method::AgentMessageAck(params),
+        "revoke" => Method::AgentMessageRevoke(params),
+        _ => unreachable!("known message action"),
+    };
+    super::print_response(&super::send_request(&Request {
+        id: format!("cli:agent:message:{action}"),
+        method,
+    })?)
+}
+
+fn agent_message_wait(args: &[String]) -> std::io::Result<i32> {
+    let mut message_id = None;
+    let mut after_sequence = 0;
+    let mut until = Vec::new();
+    let mut timeout_ms = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--after" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --after");
+                    return Ok(2);
+                };
+                after_sequence = super::parse_u64_flag("--after", value)?;
+                index += 2;
+            }
+            "--until" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --until");
+                    return Ok(2);
+                };
+                until.push(parse_message_state(value)?);
+                index += 2;
+            }
+            "--timeout" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --timeout");
+                    return Ok(2);
+                };
+                timeout_ms = Some(super::parse_u64_flag("--timeout", value)?);
+                index += 2;
+            }
+            value if value.starts_with('-') => {
+                eprintln!("unknown option: {value}");
+                return Ok(2);
+            }
+            value if message_id.is_none() => {
+                message_id = Some(value.to_string());
+                index += 1;
+            }
+            value => {
+                eprintln!("unexpected argument: {value}");
+                return Ok(2);
+            }
+        }
+    }
+    if message_id.is_none() && !until.is_empty() {
+        eprintln!("--until requires a message id");
+        return Ok(2);
+    }
+    if message_id.is_some() && after_sequence != 0 {
+        eprintln!("--after cannot be used with a message id");
+        return Ok(2);
+    }
+    let selector = match message_id {
+        Some(message_id) => AgentMessageWaitSelector::State { message_id, until },
+        None => AgentMessageWaitSelector::Inbox { after_sequence },
+    };
+    let caller_pane_id = match caller_pane_id() {
+        Ok(value) => value,
+        Err(code) => return Ok(code),
+    };
+    super::print_response(&super::send_request(&Request {
+        id: "cli:agent:message:wait".into(),
+        method: Method::AgentMessageWait(AgentMessageWaitParams {
+            caller_pane_id,
+            selector,
+            timeout_ms,
+        }),
+    })?)
+}
+
+fn parse_message_state(value: &str) -> std::io::Result<AgentMessageState> {
+    match value {
+        "pending" => Ok(AgentMessageState::Pending),
+        "observed" => Ok(AgentMessageState::Observed),
+        "injected" => Ok(AgentMessageState::Injected),
+        "acknowledged" => Ok(AgentMessageState::Acknowledged),
+        "revoked" => Ok(AgentMessageState::Revoked),
+        _ => Err(std::io::Error::other(format!(
+            "invalid message state: {value} (expected pending, observed, injected, acknowledged, or revoked)"
+        ))),
+    }
+}
+
+fn print_agent_lobby_help() {
+    eprintln!("{} agent lobby commands:", crate::EXECUTABLE_NAME);
+    eprintln!("  {} agent lobby list", crate::EXECUTABLE_NAME);
+    eprintln!("  {} agent lobby connect <target>", crate::EXECUTABLE_NAME);
+    eprintln!("  {} agent lobby leave <lobby-id>", crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {} agent lobby remove <lobby-id> <member-instance-id>",
+        crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {} agent lobby rename <lobby-id> <label>",
+        crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {} agent lobby delete <lobby-id>", crate::EXECUTABLE_NAME);
+}
+
+fn caller_pane_id() -> Result<String, i32> {
+    crate::brand::env_var(
+        crate::integration::VRSPI_PANE_ID_ENV_VAR,
+        crate::integration::HERDR_PANE_ID_ENV_VAR,
+    )
+        .ok()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            eprintln!(
+                "agent collaboration requires a managed Vrspi pane (VRSPI_PANE_ID or legacy HERDR_PANE_ID is not set)"
+            );
+            1
+        })
+}
+
+fn print_agent_message_help() {
+    eprintln!(
+        "{name} agent message commands:",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent message send <target> <text> [--reply-to ID]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent message inbox [--after SEQ] [--limit N] [--unacked]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent message outbox [--after SEQ] [--limit N]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent message get <id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent message ack <id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent message revoke <id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent message wait [--after SEQ] [--timeout MS]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent message wait <id> [--until STATE]... [--timeout MS]",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 fn agent_explain(args: &[String]) -> std::io::Result<i32> {
@@ -115,7 +485,10 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
             return Ok(2);
         }
         let Some(agent_label) = agent else {
-            eprintln!("herdr agent explain --file requires --agent LABEL");
+            eprintln!(
+                "{name} agent explain --file requires --agent LABEL",
+                name = crate::EXECUTABLE_NAME
+            );
             return Ok(2);
         };
         let content = match std::fs::read_to_string(&path) {
@@ -857,7 +1230,7 @@ fn agent_send_keys(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_read(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: herdr agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+        eprintln!("usage: herdr agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi] [--allow-partial]");
         return Ok(2);
     };
 
@@ -865,6 +1238,7 @@ fn agent_read(args: &[String]) -> std::io::Result<i32> {
     let mut lines = None;
     let mut format = ReadFormat::Text;
     let mut strip_ansi = true;
+    let mut allow_partial = false;
 
     let mut index = 1;
     while index < args.len() {
@@ -899,6 +1273,10 @@ fn agent_read(args: &[String]) -> std::io::Result<i32> {
                 strip_ansi = false;
                 index += 1;
             }
+            "--allow-partial" => {
+                allow_partial = true;
+                index += 1;
+            }
             other => {
                 eprintln!("unknown option: {other}");
                 return Ok(2);
@@ -914,28 +1292,62 @@ fn agent_read(args: &[String]) -> std::io::Result<i32> {
             lines,
             format,
             strip_ansi,
+            allow_partial,
         }),
     })?;
     super::print_read_response(&response)
 }
 
 fn print_agent_help() {
-    eprintln!("herdr agent commands:");
-    eprintln!("  herdr agent list");
-    eprintln!("  herdr agent get <target>");
-    eprintln!("  herdr agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi]");
-    eprintln!("  herdr agent send-keys <target> <key> [key ...]");
-    eprintln!("  herdr agent prompt <target> <text> [--wait] [--until STATUS]... [--timeout MS]");
-    eprintln!("  herdr agent rename <target> <name>|--clear");
-    eprintln!("  herdr agent focus <target>");
-    eprintln!("  herdr agent wait <target> [--until STATUS]... [--timeout MS]");
-    eprintln!("  herdr agent attach <target> [--takeover]");
+    eprintln!("{name} agent commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} agent list", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} agent get <target>", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} agent self", name = crate::EXECUTABLE_NAME);
     eprintln!(
-        "  herdr agent start <name> --kind KIND --pane ID [--timeout MS] [-- <agent-args...>]"
+        "  {name} agent message <send|inbox|outbox|get|ack|revoke|wait> ...",
+        name = crate::EXECUTABLE_NAME
     );
-    eprintln!("  herdr agent explain <target> [--json|--format text|json] [--verbose]");
     eprintln!(
-        "  herdr agent explain --file PATH --agent LABEL [--json|--format text|json] [--verbose]"
+        "  {name} agent lobby <list|connect> ...",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {name} agent read <target> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi] [--allow-partial]", name = crate::EXECUTABLE_NAME);
+    eprintln!("      --allow-partial returns what is on screen instead of refusing while the target works");
+    eprintln!(
+        "  {name} agent send-keys <target> <key> [key ...]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent prompt <target> <text> [--wait] [--until STATUS]... [--timeout MS]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent rename <target> <name>|--clear",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent focus <target>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent wait <target> [--until STATUS]... [--timeout MS]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent attach <target> [--takeover]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent start <name> --kind KIND --pane ID [--timeout MS] [-- <agent-args...>]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent explain <target> [--json|--format text|json] [--verbose]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} agent explain --file PATH --agent LABEL [--json|--format text|json] [--verbose]",
+        name = crate::EXECUTABLE_NAME
     );
     eprintln!("  targets accept unique agent names and pane ids that currently host agents");
     eprintln!("  kinds: {}", super::spec::agent_kind_values().join("|"));

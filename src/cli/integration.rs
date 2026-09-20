@@ -152,40 +152,148 @@ fn parse_integration_target(
 }
 
 fn print_integration_help() {
-    eprintln!("herdr integration commands:");
-    eprintln!("  herdr integration install pi");
-    eprintln!("  herdr integration install omp");
-    eprintln!("  herdr integration install claude");
-    eprintln!("  herdr integration install codex");
-    eprintln!("  herdr integration install copilot");
-    eprintln!("  herdr integration install devin");
-    eprintln!("  herdr integration install droid");
-    eprintln!("  herdr integration install kimi");
-    eprintln!("  herdr integration install opencode");
-    eprintln!("  herdr integration install kilo");
-    eprintln!("  herdr integration install hermes");
-    eprintln!("  herdr integration install qodercli");
-    eprintln!("  herdr integration install qwen");
-    eprintln!("  herdr integration install cursor");
-    eprintln!("  herdr integration install mastracode");
-    eprintln!("  herdr integration install antigravity-cli");
-    eprintln!("  herdr integration install grok");
-    eprintln!("  herdr integration uninstall pi");
-    eprintln!("  herdr integration uninstall omp");
-    eprintln!("  herdr integration uninstall claude");
-    eprintln!("  herdr integration uninstall codex");
-    eprintln!("  herdr integration uninstall copilot");
-    eprintln!("  herdr integration uninstall devin");
-    eprintln!("  herdr integration uninstall droid");
-    eprintln!("  herdr integration uninstall kimi");
-    eprintln!("  herdr integration uninstall opencode");
-    eprintln!("  herdr integration uninstall kilo");
-    eprintln!("  herdr integration uninstall hermes");
-    eprintln!("  herdr integration uninstall qodercli");
-    eprintln!("  herdr integration uninstall qwen");
-    eprintln!("  herdr integration uninstall cursor");
-    eprintln!("  herdr integration uninstall mastracode");
-    eprintln!("  herdr integration uninstall antigravity-cli");
-    eprintln!("  herdr integration uninstall grok");
-    eprintln!("  herdr integration status [--outdated-only]");
+    eprintln!(
+        "{name} integration commands:",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install pi",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install omp",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install claude",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install codex",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install copilot",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install devin",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install droid",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install kimi",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install opencode",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install kilo",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install hermes",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install qodercli",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install qwen",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install cursor",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install mastracode",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install antigravity-cli",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration install grok",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall pi",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall omp",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall claude",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall codex",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall copilot",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall devin",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall droid",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall kimi",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall opencode",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall kilo",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall hermes",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall qodercli",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall qwen",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall cursor",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall mastracode",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall antigravity-cli",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration uninstall grok",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} integration status [--outdated-only]",
+        name = crate::EXECUTABLE_NAME
+    );
 }

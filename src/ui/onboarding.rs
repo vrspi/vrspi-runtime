@@ -48,7 +48,7 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
     .areas::<4>(stack.content);
 
     frame.render_widget(
-        Paragraph::new("  herdr").style(
+        Paragraph::new("  ◈  V R S P I  /  RUNTIME").style(
             Style::default()
                 .fg(app.palette.text)
                 .add_modifier(Modifier::BOLD),
@@ -56,14 +56,14 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
         header_rows[0],
     );
     frame.render_widget(
-        Paragraph::new("  terminal workspace manager for coding agents")
+        Paragraph::new("  A space for ambitious work.")
             .style(Style::default().fg(app.palette.overlay0)),
         header_rows[1],
     );
 
     frame.render_widget(
         Paragraph::new(
-            "  this is a mouse-first terminal.\n  click the sidebar to switch workspaces, drag pane\n  borders to resize, right-click for context menus.",
+            "  Bring your tools. Build your team.\n  Click workspaces to switch, drag borders to resize,\n  and right-click any pane for its actions.",
         )
         .style(Style::default().fg(app.palette.overlay1)),
         content_rows[0],
@@ -95,7 +95,7 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(key_line), content_rows[2]);
 
     frame.render_widget(
-        Paragraph::new("  next: install optional agent integrations for more reliable state")
+        Paragraph::new("  Next: connect your agents with optional integrations.")
             .style(Style::default().fg(app.palette.overlay1)),
         content_rows[3],
     );

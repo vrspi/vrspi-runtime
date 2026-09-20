@@ -2,6 +2,8 @@
 name = "herdr"
 version = "0.8.2"
 edition = "2021"
+autobins = false
+default-run = "vrspi"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
 license = "Apache-2.0"
@@ -19,6 +21,10 @@ include = [
     "LICENSE",
     "Cargo.toml",
 ]
+
+[[bin]]
+name = "vrspi"
+path = "src/main.rs"
 
 [dependencies]
 base64 = "0.22.1"

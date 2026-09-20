@@ -134,6 +134,9 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             );
         }
         SettingsSection::Toast => {
+            // The `ToastDelivery::Herdr` variant and its `delivery = "herdr"`
+            // config value are a compatibility contract; only the label moves.
+            let inside_app_label = format!("inside {}", crate::EXECUTABLE_NAME);
             render_modal_choice_list(
                 frame,
                 content_area,
@@ -141,7 +144,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 "choose where background popup notifications should appear",
                 &[
                     ("off", ToastDelivery::Off),
-                    ("inside herdr", ToastDelivery::Herdr),
+                    (inside_app_label.as_str(), ToastDelivery::Herdr),
                     ("via terminal", ToastDelivery::Terminal),
                     ("via system", ToastDelivery::System),
                 ],

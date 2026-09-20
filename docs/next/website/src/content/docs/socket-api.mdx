@@ -106,12 +106,31 @@ Raw socket method names use dot notation:
 | Pane | `pane.split`, `pane.swap`, `pane.move`, `pane.zoom`, `pane.layout`, `pane.process_info`, `pane.neighbor`, `pane.edges`, `pane.focus_direction`, `pane.resize`, `pane.list`, `pane.current`, `pane.get`, `pane.rename`, `pane.send_text`, `pane.send_keys`, `pane.send_input`, `pane.read`, `pane.graphics.info`, `pane.graphics.set`, `pane.graphics.clear`, `pane.graphics.stream`, `pane.report_agent`, `pane.report_agent_session`, `pane.report_metadata`, `pane.clear_agent_authority`, `pane.release_agent`, `pane.close`, `pane.wait_for_output` |
 | Popup | `popup.close` |
 | Layout | `layout.export`, `layout.apply`, `layout.set_split_ratio` |
-| Agent | `agent.list`, `agent.get`, `agent.read`, `agent.explain`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, `agent.focus`, `agent.start`, `agent.view.set`, `agent.view.clear` |
+| Agent | `agent.list`, `agent.get`, `agent.self`, `agent.read`, `agent.explain`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, `agent.focus`, `agent.start`, `agent.message.send`, `agent.message.list`, `agent.message.get`, `agent.message.ack`, `agent.message.revoke`, `agent.message.wait`, `agent.lobby.connect`, `agent.lobby.list`, `agent.view.set`, `agent.view.clear` |
 | Events | `events.subscribe`, `events.wait` |
 | Integrations | `integration.install`, `integration.uninstall` |
 | Plugins | `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.action.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, `plugin.pane.close` |
 
 `agent.wait` is server-owned and event-driven. It pins the resolved pane occupant so a replacement cannot satisfy the wait. `agent.prompt` accepts an optional `wait` object with `until` and `timeout_ms`; this submits the prompt and starts the wait in one request, avoiding a race between separate calls. If the resolved agent is already `blocked`, `agent.prompt` returns `agent_blocked` without sending input or starting the wait.
+
+`agent.self` and `agent.message.*` accept `caller_pane_id`; the CLI fills it
+from the managed pane's `HERDR_PANE_ID`. The message API binds both parties to
+immutable live agent incarnations, so pane moves retain access while a
+replacement agent cannot inherit mail. Listing or getting inbound mail marks it
+observed, acknowledgement is recipient-only, and revocation is sender-only
+until injection or acknowledgement. `agent.message.wait` long-polls either the inbox after a
+sequence or one visible message's state. Mail survives live binary handoff but
+not a cold server restart. This is attribution within the existing mode-0600,
+same-user socket trust model, not a security boundary between same-user
+processes.
+
+`agent.lobby.connect` idempotently creates a direct lobby between the caller
+and target incarnations; `agent.lobby.list` returns lobbies and member
+activity. A shared lobby opts those instances into automatic delivery of the
+oldest pending message while the recipient is idle. Successful submission uses
+the `injected` message state and is never retried or revocable. A per-recipient
+lifecycle gate prevents another submission until activity and a later idle
+state are observed.
 
 `workspace.move_block` atomically moves the ordered `workspace_ids` before `before_workspace_id`; omit the anchor to move the block to the end. The ids must be unique and the anchor cannot be part of the block. The response contains the authoritative ordered workspace list.
 

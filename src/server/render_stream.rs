@@ -636,4 +636,35 @@ mod render_scale_benchmark {
             profile_cardinalities(app_with_active_panes),
         );
     }
+
+    fn branded(mut app: AppState) -> AppState {
+        app.theme_name = "vrspi".into();
+        app.palette = crate::app::state::Palette::vrspi();
+        app.show_agent_labels_on_pane_borders = true;
+        app.hide_tab_bar_when_single_tab = true;
+        app.ensure_test_terminals();
+        for ws in &app.workspaces {
+            for tab in &ws.tabs {
+                for pane in tab.panes.values() {
+                    let terminal = app.terminals.get_mut(&pane.attached_terminal_id).unwrap();
+                    terminal.detected_agent = Some(crate::detect::Agent::Codex);
+                    terminal.state = crate::detect::AgentState::Working;
+                }
+            }
+        }
+        app
+    }
+
+    #[tokio::test]
+    #[ignore = "non-gating render scale profile; run with just bench-render-scale"]
+    async fn vrspi_render_scale_profile() {
+        print_profiles(
+            "Vrspi background workspaces (populated agents)",
+            profile_cardinalities(|count| branded(app_with_workspaces(count))),
+        );
+        print_profiles(
+            "Vrspi active panes (populated agents)",
+            profile_cardinalities(|count| branded(app_with_active_panes(count))),
+        );
+    }
 }

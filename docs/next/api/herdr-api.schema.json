@@ -39,6 +39,89 @@
     },
     "event": {
       "$defs": {
+        "AgentLobby": {
+          "properties": {
+            "created_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "label": {
+              "type": "string"
+            },
+            "lobby_id": {
+              "type": "string"
+            },
+            "members": {
+              "items": {
+                "$ref": "#/schemas/event/$defs/AgentLobbyMember"
+              },
+              "type": "array"
+            },
+            "owner_instance_id": {
+              "description": "The member allowed to rename, remove members, or delete this lobby.\nOlder handoff manifests did not record ownership.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "workspace_id": {
+              "description": "Stable workspace scope for the one-space-per-workspace UI model.\nAd-hoc pair lobbies and older handoff manifests leave this unset.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "lobby_id",
+            "label",
+            "members",
+            "created_at_unix_ms",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "AgentLobbyMember": {
+          "properties": {
+            "active": {
+              "type": "boolean"
+            },
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "instance_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "terminal_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "instance_id",
+            "terminal_id",
+            "pane_id",
+            "active"
+          ],
+          "type": "object"
+        },
         "AgentSessionInfo": {
           "properties": {
             "agent": {
@@ -723,6 +806,38 @@
                 "layout"
               ],
               "type": "object"
+            },
+            {
+              "properties": {
+                "lobby": {
+                  "$ref": "#/schemas/event/$defs/AgentLobby"
+                },
+                "type": {
+                  "const": "agent_lobby_updated",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "lobby"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "lobby_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "agent_lobby_deleted",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "lobby_id"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -753,7 +868,9 @@
             "pane_exited",
             "pane_agent_detected",
             "pane_agent_status_changed",
-            "layout_updated"
+            "layout_updated",
+            "agent_lobby_updated",
+            "agent_lobby_deleted"
           ],
           "type": "string"
         },
@@ -1222,6 +1339,251 @@
     },
     "request": {
       "$defs": {
+        "AgentLobbyConnectParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "caller_pane_id",
+            "target"
+          ],
+          "type": "object"
+        },
+        "AgentLobbyListParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "caller_pane_id"
+          ],
+          "type": "object"
+        },
+        "AgentLobbyRemoveMemberParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": "string"
+            },
+            "lobby_id": {
+              "type": "string"
+            },
+            "member_instance_id": {
+              "description": "Stable collaboration instance ID from `agent.lobby.list`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "caller_pane_id",
+            "lobby_id",
+            "member_instance_id"
+          ],
+          "type": "object"
+        },
+        "AgentLobbyRenameParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "lobby_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "caller_pane_id",
+            "lobby_id",
+            "label"
+          ],
+          "type": "object"
+        },
+        "AgentLobbyTargetParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": "string"
+            },
+            "lobby_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "caller_pane_id",
+            "lobby_id"
+          ],
+          "type": "object"
+        },
+        "AgentMessageBox": {
+          "enum": [
+            "inbox",
+            "outbox",
+            "all"
+          ],
+          "type": "string"
+        },
+        "AgentMessageListParams": {
+          "properties": {
+            "after_sequence": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "caller_pane_id": {
+              "type": "string"
+            },
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "mailbox": {
+              "$ref": "#/schemas/request/$defs/AgentMessageBox",
+              "default": "inbox"
+            },
+            "unacknowledged_only": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "caller_pane_id"
+          ],
+          "type": "object"
+        },
+        "AgentMessageSendParams": {
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "caller_pane_id": {
+              "type": "string"
+            },
+            "client_nonce": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reply_to": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "caller_pane_id",
+            "target",
+            "body"
+          ],
+          "type": "object"
+        },
+        "AgentMessageState": {
+          "enum": [
+            "pending",
+            "observed",
+            "injected",
+            "acknowledged",
+            "revoked"
+          ],
+          "type": "string"
+        },
+        "AgentMessageTargetParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": "string"
+            },
+            "message_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "caller_pane_id",
+            "message_id"
+          ],
+          "type": "object"
+        },
+        "AgentMessageWaitParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/schemas/request/$defs/AgentMessageWaitSelector"
+            },
+            "timeout_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "caller_pane_id",
+            "selector"
+          ],
+          "type": "object"
+        },
+        "AgentMessageWaitSelector": {
+          "oneOf": [
+            {
+              "properties": {
+                "after_sequence": {
+                  "default": 0,
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "inbox",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "message_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "state",
+                  "type": "string"
+                },
+                "until": {
+                  "items": {
+                    "$ref": "#/schemas/request/$defs/AgentMessageState"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "type",
+                "message_id",
+                "until"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "AgentPromptParams": {
           "properties": {
             "target": {
@@ -1268,6 +1630,11 @@
         },
         "AgentReadParams": {
           "properties": {
+            "allow_partial": {
+              "default": false,
+              "description": "Return whatever history is available instead of refusing when the\ntarget is mid-turn. Reading a teammate's session while it works is the\npoint of the flag, so a short answer beats no answer.",
+              "type": "boolean"
+            },
             "format": {
               "$ref": "#/schemas/request/$defs/ReadFormat",
               "default": "text"
@@ -1311,6 +1678,17 @@
           },
           "required": [
             "target"
+          ],
+          "type": "object"
+        },
+        "AgentSelfParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "caller_pane_id"
           ],
           "type": "object"
         },
@@ -3647,6 +4025,372 @@
           ],
           "type": "string"
         },
+        "RoomAllowanceParams": {
+          "properties": {
+            "additional": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "root_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "root_id",
+            "additional"
+          ],
+          "type": "object"
+        },
+        "RoomCreateParams": {
+          "description": "Who is calling a room method.\n\n`host` is the authenticated operator acting through the TUI or CLI;\n`caller_pane_id` identifies an agent acting as one of its own seats. The\nserver derives authority from this, never from a name inside message text.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "objective": {
+              "default": "",
+              "type": "string"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "workspace_id",
+            "name"
+          ],
+          "type": "object"
+        },
+        "RoomDeliveryAckParams": {
+          "description": "Explicit receipt of a delivered room event by the addressed agent.",
+          "properties": {
+            "caller_pane_id": {
+              "description": "Required: the host cannot acknowledge comprehension for an agent.",
+              "type": "string"
+            },
+            "event_id": {
+              "type": "string"
+            },
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "event_id",
+            "caller_pane_id"
+          ],
+          "type": "object"
+        },
+        "RoomEventListParams": {
+          "properties": {
+            "after_sequence": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id"
+          ],
+          "type": "object"
+        },
+        "RoomLifecycleParams": {
+          "properties": {
+            "lifecycle": {
+              "$ref": "#/schemas/request/$defs/RoomLifecycleValue"
+            },
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "lifecycle"
+          ],
+          "type": "object"
+        },
+        "RoomLifecycleValue": {
+          "enum": [
+            "active",
+            "paused",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "RoomListParams": {
+          "properties": {
+            "workspace_id": {
+              "description": "Restrict to one workspace. A room belongs to exactly one workspace, but\na workspace may hold several rooms.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "RoomMemberAddParams": {
+          "properties": {
+            "handle": {
+              "description": "Room-local handle. Unique within the room, matched case-insensitively.",
+              "type": "string"
+            },
+            "orchestrator": {
+              "default": false,
+              "description": "Claim the single reserved coordinating seat. Its handle must be\n`orchestrator`.",
+              "type": "boolean"
+            },
+            "role": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "handle"
+          ],
+          "type": "object"
+        },
+        "RoomMemberBindParams": {
+          "description": "Binds a live agent to a seat, or clears the binding with a null target.",
+          "properties": {
+            "member_id": {
+              "type": "string"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "target": {
+              "description": "Agent target: a unique live agent name or a pane ID hosting one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "room_id",
+            "member_id"
+          ],
+          "type": "object"
+        },
+        "RoomMemberGrantParams": {
+          "properties": {
+            "caller_pane_id": {
+              "description": "Pane of the orchestrator granting it. Absent, the caller is the host.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "may_broadcast": {
+              "description": "Whether the seat may address the whole room with `@all`.",
+              "type": "boolean"
+            },
+            "member_id": {
+              "type": "string"
+            },
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "member_id",
+            "may_broadcast"
+          ],
+          "type": "object"
+        },
+        "RoomMemberTargetParams": {
+          "properties": {
+            "member_id": {
+              "type": "string"
+            },
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "member_id"
+          ],
+          "type": "object"
+        },
+        "RoomMemoryPutParams": {
+          "properties": {
+            "body": {
+              "default": "",
+              "type": "string"
+            },
+            "caller_pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expected_revision": {
+              "description": "Revision the writer read. A mismatch is a conflict, never a silent\noverwrite of a newer decision.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "record_id": {
+              "description": "Omit to create; supply with `expected_revision` to update.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "summary": {
+              "default": "",
+              "type": "string"
+            },
+            "tags": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "title"
+          ],
+          "type": "object"
+        },
+        "RoomMemorySearchParams": {
+          "properties": {
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "type": "string"
+            },
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "query"
+          ],
+          "type": "object"
+        },
+        "RoomMemoryTargetParams": {
+          "properties": {
+            "caller_pane_id": {
+              "description": "Pane of the agent acting for its own seat. Absent, the caller is the host.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        "RoomPostParams": {
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "caller_pane_id": {
+              "description": "Pane ID of the agent posting. Omit when the host posts.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_nonce": {
+              "description": "Retry key. Posting twice with the same key returns the first event\ninstead of appending a second one and waking every recipient again.\nReusing a key for different content is an error, not a retry.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recipients": {
+              "default": [],
+              "description": "Additional recipients beyond any `@handle` mentions in the body.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "root_id": {
+              "description": "Objective this post belongs to. Omitting it starts a new objective with\na fresh activation allowance; supplying it shares the existing one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "room_id",
+            "body"
+          ],
+          "type": "object"
+        },
+        "RoomTargetParams": {
+          "properties": {
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id"
+          ],
+          "type": "object"
+        },
         "ServerLiveHandoffParams": {
           "properties": {
             "expected_protocol": {
@@ -4039,6 +4783,30 @@
               "properties": {
                 "type": {
                   "const": "layout.updated",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "agent.lobby.updated",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "agent.lobby.deleted",
                   "type": "string"
                 }
               },
@@ -5117,6 +5885,502 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentWaitParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.self",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentSelfParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.message.send",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentMessageSendParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.message.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentMessageListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.message.get",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentMessageTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.message.ack",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentMessageTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.message.revoke",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentMessageTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.message.wait",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentMessageWaitParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.lobby.connect",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentLobbyConnectParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.lobby.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentLobbyListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.lobby.leave",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentLobbyTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.lobby.remove",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentLobbyRemoveMemberParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.lobby.delete",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentLobbyTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.lobby.rename",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentLobbyRenameParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.create",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomCreateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.get",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.set_lifecycle",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomLifecycleParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.member.add",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemberAddParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.member.remove",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemberTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.member.bind",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemberBindParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.post",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomPostParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.ack",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomDeliveryAckParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.events",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomEventListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.memory.put",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemoryPutParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.memory.search",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemorySearchParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.memory.get",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemoryTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.memory.accept",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemoryTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.memory.delete",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemoryTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.delete",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTargetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.member.grant",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomMemberGrantParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.allowance.extend",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomAllowanceParams"
             }
           },
           "required": [
@@ -6262,6 +7526,89 @@
           ],
           "type": "object"
         },
+        "AgentLobby": {
+          "properties": {
+            "created_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "label": {
+              "type": "string"
+            },
+            "lobby_id": {
+              "type": "string"
+            },
+            "members": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/AgentLobbyMember"
+              },
+              "type": "array"
+            },
+            "owner_instance_id": {
+              "description": "The member allowed to rename, remove members, or delete this lobby.\nOlder handoff manifests did not record ownership.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "workspace_id": {
+              "description": "Stable workspace scope for the one-space-per-workspace UI model.\nAd-hoc pair lobbies and older handoff manifests leave this unset.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "lobby_id",
+            "label",
+            "members",
+            "created_at_unix_ms",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "AgentLobbyMember": {
+          "properties": {
+            "active": {
+              "type": "boolean"
+            },
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "instance_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "terminal_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "instance_id",
+            "terminal_id",
+            "pane_id",
+            "active"
+          ],
+          "type": "object"
+        },
         "AgentManifestInfo": {
           "properties": {
             "active_version": {
@@ -6322,6 +7669,136 @@
             "local_override_shadowing_remote"
           ],
           "type": "object"
+        },
+        "AgentMessage": {
+          "properties": {
+            "acknowledged_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "body": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_nonce": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "created_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "delivery_uncertain": {
+              "description": "A delivery was durably claimed, but the server stopped before it could\nprove whether the terminal submission completed. These messages are\nnever retried automatically.",
+              "type": "boolean"
+            },
+            "injected_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "message_id": {
+              "type": "string"
+            },
+            "observed_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "recipient": {
+              "$ref": "#/schemas/success_response/$defs/AgentMessageParty"
+            },
+            "reply_to": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "revoked_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "sender": {
+              "$ref": "#/schemas/success_response/$defs/AgentMessageParty"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state": {
+              "$ref": "#/schemas/success_response/$defs/AgentMessageState"
+            }
+          },
+          "required": [
+            "message_id",
+            "sequence",
+            "sender",
+            "recipient",
+            "state",
+            "created_at_unix_ms"
+          ],
+          "type": "object"
+        },
+        "AgentMessageParty": {
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "instance_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "terminal_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "instance_id",
+            "terminal_id",
+            "pane_id"
+          ],
+          "type": "object"
+        },
+        "AgentMessageState": {
+          "enum": [
+            "pending",
+            "observed",
+            "injected",
+            "acknowledged",
+            "revoked"
+          ],
+          "type": "string"
         },
         "AgentSessionInfo": {
           "properties": {
@@ -7023,6 +8500,38 @@
                 "layout"
               ],
               "type": "object"
+            },
+            {
+              "properties": {
+                "lobby": {
+                  "$ref": "#/schemas/success_response/$defs/AgentLobby"
+                },
+                "type": {
+                  "const": "agent_lobby_updated",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "lobby"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "lobby_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "agent_lobby_deleted",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "lobby_id"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -7068,7 +8577,9 @@
             "pane_exited",
             "pane_agent_detected",
             "pane_agent_status_changed",
-            "layout_updated"
+            "layout_updated",
+            "agent_lobby_updated",
+            "agent_lobby_deleted"
           ],
           "type": "string"
         },
@@ -8940,6 +10451,26 @@
                 "agent": {
                   "$ref": "#/schemas/success_response/$defs/AgentInfo"
                 },
+                "instance_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "agent_self",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "agent",
+                "instance_id"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "agent": {
+                  "$ref": "#/schemas/success_response/$defs/AgentInfo"
+                },
                 "argv": {
                   "items": {
                     "type": "string"
@@ -8990,6 +10521,223 @@
               "required": [
                 "type",
                 "agents"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "message": {
+                  "$ref": "#/schemas/success_response/$defs/AgentMessage"
+                },
+                "type": {
+                  "const": "agent_message",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "message"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "has_more": {
+                  "default": false,
+                  "description": "More matches exist after this page. Additive with a default so\nolder clients keep parsing the response unchanged.",
+                  "type": "boolean"
+                },
+                "latest_sequence": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "messages": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/AgentMessage"
+                  },
+                  "type": "array"
+                },
+                "next_after_sequence": {
+                  "description": "Pass back as `after_sequence` to fetch the next page.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "agent_message_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "messages",
+                "latest_sequence"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "room": {
+                  "$ref": "#/schemas/success_response/$defs/RoomInfo"
+                },
+                "type": {
+                  "const": "room_info",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "room"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "rooms": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/RoomInfo"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "room_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "rooms"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "event": {
+                  "$ref": "#/schemas/success_response/$defs/RoomEventInfo"
+                },
+                "type": {
+                  "const": "room_event",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "event"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "events": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/RoomEventInfo"
+                  },
+                  "type": "array"
+                },
+                "latest_sequence": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "room_event_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "events",
+                "latest_sequence"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "record": {
+                  "$ref": "#/schemas/success_response/$defs/RoomRecordInfo"
+                },
+                "type": {
+                  "const": "room_record",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "record"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "hits": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/RoomRecordHit"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "room_record_hits",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "hits"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "budget": {
+                  "$ref": "#/schemas/success_response/$defs/RoomBudgetInfo"
+                },
+                "type": {
+                  "const": "room_budget",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "budget"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "lobby": {
+                  "$ref": "#/schemas/success_response/$defs/AgentLobby"
+                },
+                "type": {
+                  "const": "agent_lobby",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "lobby"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "lobbies": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/AgentLobby"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "agent_lobby_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "lobbies"
               ],
               "type": "object"
             },
@@ -9821,6 +11569,296 @@
               "type": "object"
             }
           ]
+        },
+        "RoomActorInfo": {
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "host",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "member",
+                  "type": "string"
+                },
+                "member_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "member_id"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "RoomBudgetInfo": {
+          "properties": {
+            "allowance": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "paused": {
+              "type": "boolean"
+            },
+            "remaining": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "root_id": {
+              "type": "string"
+            },
+            "used": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "root_id",
+            "allowance",
+            "used",
+            "remaining",
+            "paused"
+          ],
+          "type": "object"
+        },
+        "RoomEventInfo": {
+          "properties": {
+            "actor": {
+              "$ref": "#/schemas/success_response/$defs/RoomActorInfo"
+            },
+            "body": {
+              "type": "string"
+            },
+            "created_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "event_id": {
+              "type": "string"
+            },
+            "recipients": {
+              "default": [],
+              "description": "Members that will actually be activated. Everyone else can read this\nlater without a model call.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "root_id": {
+              "type": "string"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "event_id",
+            "sequence",
+            "actor",
+            "body",
+            "root_id",
+            "created_at_unix_ms"
+          ],
+          "type": "object"
+        },
+        "RoomInfo": {
+          "properties": {
+            "event_count": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "lifecycle": {
+              "$ref": "#/schemas/success_response/$defs/RoomLifecycleValue"
+            },
+            "members": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/RoomMemberInfo"
+              },
+              "type": "array"
+            },
+            "name": {
+              "type": "string"
+            },
+            "objective": {
+              "default": "",
+              "type": "string"
+            },
+            "record_count": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "workspace_id",
+            "name",
+            "lifecycle",
+            "members",
+            "event_count",
+            "record_count",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "RoomLifecycleValue": {
+          "enum": [
+            "active",
+            "paused",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "RoomMemberInfo": {
+          "properties": {
+            "bound_instance_id": {
+              "description": "Live agent incarnation filling this seat, when one is bound.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "handle": {
+              "type": "string"
+            },
+            "may_broadcast": {
+              "description": "Whether this seat may address the whole room with `@all`.",
+              "type": "boolean"
+            },
+            "member_id": {
+              "type": "string"
+            },
+            "orchestrator": {
+              "type": "boolean"
+            },
+            "role": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "member_id",
+            "handle",
+            "orchestrator"
+          ],
+          "type": "object"
+        },
+        "RoomRecordHit": {
+          "description": "A short search hit. Bodies are fetched separately so a search response\ncannot blow an activation packet's budget.",
+          "properties": {
+            "record_id": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "$ref": "#/schemas/success_response/$defs/RoomRecordStatusValue"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "record_id",
+            "revision",
+            "title",
+            "summary",
+            "status"
+          ],
+          "type": "object"
+        },
+        "RoomRecordInfo": {
+          "properties": {
+            "body": {
+              "default": "",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "$ref": "#/schemas/success_response/$defs/RoomRecordStatusValue"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "tags": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updated_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "record_id",
+            "revision",
+            "title",
+            "summary",
+            "status",
+            "updated_at_unix_ms"
+          ],
+          "type": "object"
+        },
+        "RoomRecordStatusValue": {
+          "enum": [
+            "proposed",
+            "accepted",
+            "disputed",
+            "stale",
+            "superseded"
+          ],
+          "type": "string"
         },
         "ServerCapabilities": {
           "properties": {

@@ -241,12 +241,24 @@ fn workspace_close(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_workspace_help() {
-    eprintln!("herdr workspace commands:");
-    eprintln!("  herdr workspace list");
-    eprintln!("  herdr workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]");
-    eprintln!("  herdr workspace get <workspace_id>");
-    eprintln!("  herdr workspace focus <workspace_id>");
-    eprintln!("  herdr workspace rename <workspace_id> <label>");
-    eprintln!("  herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
-    eprintln!("  herdr workspace close <workspace_id> [--group]");
+    eprintln!("{name} workspace commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} workspace list", name = crate::EXECUTABLE_NAME);
+    eprintln!("  {name} workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} workspace get <workspace_id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} workspace focus <workspace_id>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} workspace rename <workspace_id> <label>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!("  {name} workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} workspace close <workspace_id> [--group]",
+        name = crate::EXECUTABLE_NAME
+    );
 }

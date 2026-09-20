@@ -12,6 +12,7 @@ use crate::{
     },
     input::TerminalKey,
     layout::NavDirection,
+    ui::AgentCallAction,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +75,9 @@ pub(super) fn modal_action_from_buttons<A: Copy>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GlobalMenuAction {
+    CompanyRooms,
+    CallAgent,
+    AgentLobbies,
     Detach,
     WhatsNew,
     Keybinds,
@@ -87,7 +91,16 @@ pub(super) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
         GlobalMenuAction::Keybinds,
         GlobalMenuAction::ReloadConfig,
     ];
-    if state.update_available.is_some() || state.latest_release_notes_available {
+    if state.focused_pane_hosts_agent() {
+        actions.push(GlobalMenuAction::CallAgent);
+    }
+    if crate::app::state::SHOW_AGENT_LOBBIES {
+        actions.push(GlobalMenuAction::AgentLobbies);
+    }
+    actions.push(GlobalMenuAction::CompanyRooms);
+    if crate::brand::UPSTREAM_UPDATES_ENABLED
+        && (state.update_available.is_some() || state.latest_release_notes_available)
+    {
         actions.push(GlobalMenuAction::WhatsNew);
     }
     actions.push(GlobalMenuAction::Detach);
@@ -130,6 +143,20 @@ pub(super) fn request_detach(state: &mut AppState) {
 
 pub(super) fn apply_global_menu_action(state: &mut AppState, action: GlobalMenuAction) {
     match action {
+        GlobalMenuAction::CompanyRooms => {
+            state.request_open_room_browser = true;
+            leave_modal(state);
+        }
+        GlobalMenuAction::CallAgent => {
+            state.request_open_agent_call = true;
+            leave_modal(state);
+        }
+        GlobalMenuAction::AgentLobbies => {
+            state.lobby_browser.selected = 0;
+            state.lobby_browser.scroll = 0;
+            state.refresh_lobby_browser();
+            state.mode = Mode::AgentLobbies;
+        }
         GlobalMenuAction::Detach => {
             leave_modal(state);
             request_detach(state);
@@ -141,6 +168,420 @@ pub(super) fn apply_global_menu_action(state: &mut AppState, action: GlobalMenuA
             leave_modal(state);
         }
         GlobalMenuAction::Settings => super::settings::open_settings(state),
+    }
+}
+
+/// Keeps the highlighted lobby on screen and re-reads its conversation.
+///
+/// Selection is meaningless if the row scrolls out of view, and it also picks
+/// which conversation the browser shows, so both must move together.
+fn follow_lobby_selection(state: &mut AppState) {
+    if let Some(layout) = crate::ui::lobby_browser_layout(state.onboarding_full_area()) {
+        state.lobby_browser.scroll = crate::ui::lobby_list_scroll(
+            &layout,
+            state.lobby_browser.selected,
+            state.lobby_browser.scroll,
+        );
+    }
+    state.lobby_browser.thread_scroll = 0;
+    state.refresh_lobby_browser();
+}
+
+pub(crate) fn handle_agent_lobbies_key(state: &mut AppState, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => leave_modal(state),
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.lobby_browser.selected = state.lobby_browser.selected.saturating_sub(1);
+            follow_lobby_selection(state);
+        }
+        KeyCode::Down | KeyCode::Char('j') if !state.lobby_browser.lobbies.is_empty() => {
+            state.lobby_browser.selected =
+                (state.lobby_browser.selected + 1).min(state.lobby_browser.lobbies.len() - 1);
+            follow_lobby_selection(state);
+        }
+        // The conversation scrolls back from the newest turn.
+        KeyCode::PageUp | KeyCode::Char('u') => {
+            state.lobby_browser.thread_scroll = state
+                .lobby_browser
+                .thread_scroll
+                .saturating_add(1)
+                .min(state.lobby_browser.thread.len().saturating_sub(1));
+        }
+        KeyCode::PageDown | KeyCode::Char('d') => {
+            state.lobby_browser.thread_scroll = state.lobby_browser.thread_scroll.saturating_sub(1);
+        }
+        // Pick which turn a "this message and below" forward starts from.
+        KeyCode::Char('K') => move_thread_cursor(state, -1),
+        KeyCode::Char('J') => move_thread_cursor(state, 1),
+        // Pick which member a removal targets.
+        KeyCode::Char('h') => move_member_cursor(state, -1),
+        KeyCode::Char('l') => move_member_cursor(state, 1),
+        _ => {}
+    }
+}
+
+/// Moves the member cursor within the selected lobby.
+fn move_member_cursor(state: &mut AppState, delta: isize) {
+    let len = state
+        .lobby_browser
+        .lobbies
+        .get(state.lobby_browser.selected)
+        .map(|lobby| lobby.members.len())
+        .unwrap_or(0);
+    if len == 0 {
+        return;
+    }
+    let current = state.lobby_browser.member_cursor.unwrap_or(0);
+    state.lobby_browser.member_cursor = Some(current.saturating_add_signed(delta).min(len - 1));
+}
+
+/// Moves the conversation cursor, which starts at the newest turn.
+fn move_thread_cursor(state: &mut AppState, delta: isize) {
+    let len = state.lobby_browser.thread.len();
+    if len == 0 {
+        return;
+    }
+    let current = state
+        .lobby_browser
+        .thread_cursor
+        .unwrap_or(len.saturating_sub(1));
+    state.lobby_browser.thread_cursor = Some(current.saturating_add_signed(delta).min(len - 1));
+}
+
+impl App {
+    /// Lobby browser keys. Forwarding needs runtime access, so this owns the
+    /// forward keys and delegates everything else to the pure handler.
+    pub(crate) fn handle_agent_lobbies_key_via_api(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('f') => {
+                self.open_forward_call(crate::app::state::ForwardScope::FromSelected)
+            }
+            KeyCode::Char('F') => {
+                self.open_forward_call(crate::app::state::ForwardScope::WholeConversation)
+            }
+            KeyCode::Char('x') => {
+                self.apply_lobby_lifecycle(crate::app::state::LobbyLifecycleAction::Leave)
+            }
+            KeyCode::Char('D') => {
+                self.apply_lobby_lifecycle(crate::app::state::LobbyLifecycleAction::Delete)
+            }
+            KeyCode::Char('r') => open_rename_lobby(&mut self.state),
+            KeyCode::Char('R') => {
+                self.apply_lobby_lifecycle(crate::app::state::LobbyLifecycleAction::RemoveMember)
+            }
+            _ => handle_agent_lobbies_key(&mut self.state, key),
+        }
+    }
+}
+
+/// Renames the selected lobby through the shared rename overlay, so this
+/// follows the same interaction as every other rename in the app.
+pub(super) fn open_rename_lobby(state: &mut AppState) {
+    let Some(lobby) = state
+        .lobby_browser
+        .lobbies
+        .get(state.lobby_browser.selected)
+    else {
+        return;
+    };
+    state.rename_lobby_target = Some(lobby.lobby_id.clone());
+    state.name_input = lobby.label.clone();
+    state.name_input_replace_on_type = true;
+    state.creating_new_tab = false;
+    state.mode = Mode::RenameLobby;
+}
+
+impl App {
+    /// Company room browser keys.
+    ///
+    /// While composing, keys are text; the browse-mode shortcuts only apply
+    /// when there is no draft, so typing "p" into a message cannot reopen the
+    /// composer.
+    pub(crate) fn handle_room_browser_key(&mut self, key: KeyEvent) {
+        if self.state.room_browser.form.is_some() {
+            self.handle_room_form_key(key);
+            return;
+        }
+        if self.state.room_browser.bind.is_some() {
+            self.handle_room_bind_key(key);
+            return;
+        }
+        if self.state.room_browser.composer.is_some() {
+            self.handle_room_composer_key(key);
+            return;
+        }
+        match key.code {
+            KeyCode::Esc if self.state.room_browser.row_menu.is_some() => {
+                self.state.room_browser.row_menu = None;
+                self.state.room_browser.notice = None;
+            }
+            KeyCode::Esc => {
+                self.state.room_browser.notice = None;
+                leave_modal(&mut self.state);
+            }
+            KeyCode::Up | KeyCode::Char('k') => self.move_room_selection(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_room_selection(1),
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                let next = self.state.room_browser.tab.next();
+                self.set_room_tab(next);
+            }
+            KeyCode::Char('1') => self.set_room_tab(crate::app::state::RoomTab::Conversation),
+            KeyCode::Char('2') => self.set_room_tab(crate::app::state::RoomTab::Members),
+            KeyCode::Char('3') => self.set_room_tab(crate::app::state::RoomTab::Memory),
+            // The conversation scrolls back from the newest turn; the seat and
+            // memory lists scroll top-down.
+            KeyCode::PageUp | KeyCode::Char('u') => self.scroll_room_content(1),
+            KeyCode::PageDown | KeyCode::Char('d') => self.scroll_room_content(-1),
+            KeyCode::Char('p') => self.open_room_composer(),
+            // The same actions the button row offers, for operators who
+            // would rather not reach for the mouse.
+            KeyCode::Char('n') => self.open_room_creator_for_selection(),
+            KeyCode::Char('s') => self.open_room_seat_form(),
+            // Expanding the newest turn or record, which is what a reader
+            // reaches for after scrolling back to it.
+            KeyCode::Enter | KeyCode::Char(' ') => self.toggle_room_focus_expanded(),
+            _ => {}
+        }
+    }
+
+    /// Keys for the room creator and the seat form.
+    fn handle_room_form_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.cancel_room_form(),
+            KeyCode::Enter => self.submit_room_form(),
+            KeyCode::Tab | KeyCode::Down | KeyCode::Up => {
+                let next = match self.state.room_browser.form.as_ref().map(|form| form.focus) {
+                    Some(crate::app::state::RoomFormField::Primary) => {
+                        crate::app::state::RoomFormField::Secondary
+                    }
+                    _ => crate::app::state::RoomFormField::Primary,
+                };
+                self.focus_room_form_field(next);
+            }
+            KeyCode::Char('o') if key.modifiers == KeyModifiers::CONTROL => {
+                self.toggle_room_form_orchestrator();
+            }
+            KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
+                self.edit_room_form_field(|text| text.clear());
+            }
+            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
+                self.edit_room_form_field(|text| text.clear());
+            }
+            KeyCode::Backspace
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    || key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                self.edit_room_form_field(delete_prompt_word);
+            }
+            KeyCode::Backspace => {
+                self.edit_room_form_field(|text| {
+                    text.pop();
+                });
+            }
+            KeyCode::Char(c)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
+                self.edit_room_form_field(|text| text.push(c));
+            }
+            _ => {}
+        }
+    }
+
+    /// Keys for the seat's agent picker.
+    fn handle_room_bind_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.cancel_room_bind(),
+            KeyCode::Enter => self.confirm_room_bind(),
+            KeyCode::Up | KeyCode::Char('k') => self.move_room_bind_selection(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_room_bind_selection(1),
+            _ => {}
+        }
+    }
+
+    fn handle_room_composer_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.state.room_browser.composer = None;
+                self.state.room_browser.notice = None;
+            }
+            // Alt+Enter keeps multi-line posts possible while plain Enter
+            // stays the send action the button row advertises.
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) => {
+                self.insert_room_composer_text("\n");
+            }
+            KeyCode::Enter => self.submit_room_post(),
+            KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
+                self.edit_room_composer(|text| text.clear());
+            }
+            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
+                self.edit_room_composer(|text| text.clear());
+            }
+            KeyCode::Backspace
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    || key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                self.edit_room_composer(delete_prompt_word);
+            }
+            KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.edit_room_composer(delete_prompt_word);
+            }
+            KeyCode::Backspace => {
+                self.edit_room_composer(|text| {
+                    text.pop();
+                });
+            }
+            KeyCode::Char(c)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
+                self.insert_room_composer_text(&c.to_string());
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn open_room_composer(&mut self) {
+        if self.state.room_browser.selected_room().is_none() {
+            self.state.room_browser.notice = Some("create a room before posting".into());
+            return;
+        }
+        self.state.room_browser.composer = Some(String::new());
+        self.state.room_browser.notice = None;
+    }
+
+    fn insert_room_composer_text(&mut self, text: &str) {
+        self.edit_room_composer(|draft| draft.push_str(text));
+    }
+
+    fn edit_room_composer(&mut self, edit: impl FnOnce(&mut String)) {
+        if let Some(draft) = self.state.room_browser.composer.as_mut() {
+            edit(draft);
+            self.state.room_browser.notice = None;
+        }
+    }
+}
+
+pub(crate) fn close_agent_call(state: &mut AppState) {
+    state.agent_call = None;
+    leave_modal(state);
+}
+
+impl App {
+    pub(crate) fn handle_agent_call_key(&mut self, key: KeyEvent) {
+        let Some(step) = self.state.agent_call.as_ref().map(|call| call.step) else {
+            close_agent_call(&mut self.state);
+            return;
+        };
+        match step {
+            crate::app::state::AgentCallStep::Pick => match key.code {
+                KeyCode::Esc => self.apply_agent_call_action(AgentCallAction::Cancel),
+                KeyCode::Enter => self.apply_agent_call_action(AgentCallAction::Next),
+                KeyCode::Up | KeyCode::Char('k') => self.move_agent_call_selection(-1),
+                KeyCode::Down | KeyCode::Char('j') => self.move_agent_call_selection(1),
+                _ => {}
+            },
+            crate::app::state::AgentCallStep::Compose => match key.code {
+                KeyCode::Esc => self.apply_agent_call_action(AgentCallAction::Cancel),
+                // Alt+Enter keeps multi-line prompts possible while plain Enter
+                // stays the send action the button row advertises.
+                KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) => {
+                    self.insert_agent_call_text("\n");
+                }
+                KeyCode::Enter => self.apply_agent_call_action(AgentCallAction::Send),
+                KeyCode::Char('b') if key.modifiers == KeyModifiers::CONTROL => {
+                    self.apply_agent_call_action(AgentCallAction::Back)
+                }
+                KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
+                    self.edit_agent_call_prompt(clear_prompt);
+                }
+                KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
+                    self.edit_agent_call_prompt(clear_prompt);
+                }
+                // Same editing vocabulary as the rename input, so the composer
+                // is not a one-off.
+                KeyCode::Backspace
+                    if key.modifiers.contains(KeyModifiers::CONTROL)
+                        || key.modifiers.contains(KeyModifiers::ALT) =>
+                {
+                    self.edit_agent_call_prompt(delete_prompt_word);
+                }
+                KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.edit_agent_call_prompt(delete_prompt_word);
+                }
+                KeyCode::Backspace => {
+                    self.edit_agent_call_prompt(|prompt| {
+                        prompt.pop();
+                    });
+                }
+                KeyCode::Char(c)
+                    if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+                {
+                    self.insert_agent_call_text(&c.to_string());
+                }
+                _ => {}
+            },
+            crate::app::state::AgentCallStep::Sent => match key.code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.apply_agent_call_action(AgentCallAction::Cancel)
+                }
+                KeyCode::Char('n') if key.modifiers == KeyModifiers::CONTROL => {
+                    self.apply_agent_call_action(AgentCallAction::Again)
+                }
+                _ => {}
+            },
+        }
+    }
+
+    fn edit_agent_call_prompt(&mut self, edit: impl FnOnce(&mut String)) {
+        if let Some(call) = self.state.agent_call.as_mut() {
+            edit(&mut call.prompt);
+            call.error = None;
+        }
+    }
+
+    pub(crate) fn insert_agent_call_text(&mut self, text: &str) {
+        let Some(call) = self.state.agent_call.as_mut() else {
+            return;
+        };
+        if call.step != crate::app::state::AgentCallStep::Compose {
+            return;
+        }
+        call.error = None;
+        call.prompt.push_str(text);
+    }
+
+    pub(crate) fn move_agent_call_selection(&mut self, delta: isize) {
+        if let Some(call) = self.state.agent_call.as_mut() {
+            call.move_selection(delta);
+        }
+    }
+
+    pub(crate) fn apply_agent_call_action(&mut self, action: AgentCallAction) {
+        match action {
+            AgentCallAction::Next => {
+                let has_target = self
+                    .state
+                    .agent_call
+                    .as_ref()
+                    .is_some_and(|call| call.selected_candidate().is_some());
+                if let Some(call) = self.state.agent_call.as_mut() {
+                    if has_target {
+                        call.step = crate::app::state::AgentCallStep::Compose;
+                        call.error = None;
+                    } else {
+                        call.error = Some("no other agent is running to call".into());
+                    }
+                }
+            }
+            AgentCallAction::Send => self.submit_agent_call(),
+            AgentCallAction::Back => {
+                if let Some(call) = self.state.agent_call.as_mut() {
+                    call.step = crate::app::state::AgentCallStep::Pick;
+                    call.error = None;
+                }
+            }
+            AgentCallAction::Again => self.restart_agent_call(),
+            AgentCallAction::Cancel => close_agent_call(&mut self.state),
+        }
     }
 }
 
@@ -672,6 +1113,26 @@ fn delete_rename_input_word(state: &mut AppState) {
     }
 }
 
+fn clear_prompt(prompt: &mut String) {
+    prompt.clear();
+}
+
+fn delete_prompt_word(prompt: &mut String) {
+    while prompt.chars().last().is_some_and(char::is_whitespace) {
+        prompt.pop();
+    }
+    let Some(class) = prompt.chars().last().map(rename_word_delete_class) else {
+        return;
+    };
+    while prompt
+        .chars()
+        .last()
+        .is_some_and(|ch| !ch.is_whitespace() && rename_word_delete_class(ch) == class)
+    {
+        prompt.pop();
+    }
+}
+
 fn handle_rename_edit_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -813,6 +1274,13 @@ pub(super) fn apply_context_menu_action(
         }
         (
             ContextMenuKind::Workspace { ws_idx } | ContextMenuKind::GitWorkspace { ws_idx, .. },
+            Some(crate::app::state::NEW_COMPANY_ROOM_ITEM),
+        ) => {
+            state.request_new_company_room = Some(ws_idx);
+            leave_modal(state);
+        }
+        (
+            ContextMenuKind::Workspace { ws_idx } | ContextMenuKind::GitWorkspace { ws_idx, .. },
             Some("Close" | "Close group"),
         ) => {
             state.selected = ws_idx;
@@ -893,6 +1361,32 @@ pub(super) fn apply_context_menu_action(
                 }
             }
             state.mode = Mode::Terminal;
+        }
+        (
+            ContextMenuKind::Pane {
+                ws_idx,
+                tab_idx,
+                pane_id,
+                ..
+            },
+            Some("Call another agent"),
+        ) => {
+            let _ = (ws_idx, tab_idx, pane_id);
+            state.mode = Mode::AgentCall;
+        }
+        (
+            ContextMenuKind::Pane {
+                ws_idx,
+                tab_idx,
+                pane_id,
+                ..
+            },
+            Some("Connect workspace agents"),
+        ) => {
+            let _ = (ws_idx, tab_idx, pane_id);
+            state.lobby_browser.selected = 0;
+            state.refresh_lobby_browser();
+            state.mode = Mode::AgentLobbies;
         }
         (
             ContextMenuKind::Pane {
@@ -1083,6 +1577,32 @@ impl App {
                     }
                 }
             }
+            Mode::RenameLobby => {
+                if let Some(lobby_id) = self.state.rename_lobby_target.take() {
+                    if let Some((ws_idx, pane_id)) = self.focused_agent_pane() {
+                        if let Some(caller_pane_id) =
+                            self.agent_info(ws_idx, pane_id).map(|agent| agent.pane_id)
+                        {
+                            let response = self.dispatch_runtime_mutation(
+                                "tui.agent.lobby.rename",
+                                crate::api::schema::Method::AgentLobbyRename(
+                                    crate::api::schema::AgentLobbyRenameParams {
+                                        caller_pane_id,
+                                        lobby_id,
+                                        label: new_name,
+                                    },
+                                ),
+                            );
+                            self.state.lobby_browser.notice =
+                                crate::app::collaboration_api_error(&response)
+                                    .or(Some("lobby renamed".into()));
+                        }
+                    }
+                    self.state.refresh_lobby_browser();
+                    self.state.mode = Mode::AgentLobbies;
+                    return;
+                }
+            }
             Mode::RenamePane => {
                 if let (Some(ws_idx), Some(pane_id)) =
                     (self.state.active, self.state.rename_pane_target)
@@ -1242,6 +1762,14 @@ impl App {
             (
                 ContextMenuKind::Workspace { ws_idx }
                 | ContextMenuKind::GitWorkspace { ws_idx, .. },
+                Some(crate::app::state::NEW_COMPANY_ROOM_ITEM),
+            ) => {
+                self.state.request_new_company_room = Some(ws_idx);
+                leave_modal(&mut self.state);
+            }
+            (
+                ContextMenuKind::Workspace { ws_idx }
+                | ContextMenuKind::GitWorkspace { ws_idx, .. },
                 Some("Close" | "Close group"),
             ) => {
                 self.state.selected = ws_idx;
@@ -1293,7 +1821,10 @@ impl App {
                 ContextMenuKind::Pane {
                     ws_idx, pane_id, ..
                 },
-                Some(action @ ("Send right-clicks to pane" | "Use Herdr right-click menu")),
+                Some(
+                    action @ ("Send right-clicks to pane"
+                    | crate::app::state::USE_APP_RIGHT_CLICK_MENU_ITEM),
+                ),
             ) => {
                 if let Some(pane_id) = self.public_pane_id(ws_idx, pane_id) {
                     self.runtime_pane_input_set(
@@ -1336,6 +1867,22 @@ impl App {
                     self.focus_pane_internal_via_api(ws_idx, source_pane_id);
                 }
                 self.state.mode = Mode::Terminal;
+            }
+            (
+                ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("Call another agent"),
+            ) => {
+                self.open_agent_call(ws_idx, pane_id);
+            }
+            (
+                ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("Connect workspace agents"),
+            ) => {
+                self.connect_workspace_agents(ws_idx, pane_id);
             }
             (
                 ContextMenuKind::Pane {
@@ -1553,7 +2100,9 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         state.latest_release_notes_available = true;
 
-        assert!(global_menu_actions(&state).contains(&GlobalMenuAction::WhatsNew));
+        // Saved notes describe upstream Herdr releases, so the menu does not
+        // offer them. The viewer itself still works if it is ever re-enabled.
+        assert!(!global_menu_actions(&state).contains(&GlobalMenuAction::WhatsNew));
 
         apply_global_menu_action(&mut state, GlobalMenuAction::WhatsNew);
 
@@ -2216,7 +2765,12 @@ mod tests {
         };
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 
-        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 1);
+        let close = menu
+            .items()
+            .iter()
+            .position(|item| *item == "Close group")
+            .expect("close group entry");
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, close);
 
         assert_eq!(state.selected, 0);
         assert_eq!(state.mode, Mode::ConfirmClose);
@@ -2239,6 +2793,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                has_agent: false,
                 right_click_passthrough: false,
             },
             x: 0,
@@ -2258,6 +2813,103 @@ mod tests {
                 .unwrap()
                 .right_click_passthrough
         );
+    }
+
+    #[test]
+    fn agent_pane_context_menu_offers_workspace_connection() {
+        let state = app_with_test_workspaces(&["main"]);
+        let pane_id = state.state.workspaces[0].tabs[0].root_pane;
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id,
+                source_pane_id: None,
+                has_manual_label: false,
+                has_agent: true,
+                right_click_passthrough: false,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        assert!(menu.items().contains(&"Connect workspace agents"));
+        assert!(menu.items().contains(&"Call another agent"));
+    }
+
+    #[test]
+    fn non_agent_pane_context_menu_hides_the_call_action() {
+        let state = app_with_test_workspaces(&["main"]);
+        let pane_id = state.state.workspaces[0].tabs[0].root_pane;
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id,
+                source_pane_id: None,
+                has_manual_label: false,
+                has_agent: false,
+                right_click_passthrough: false,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        assert!(!menu.items().contains(&"Call another agent"));
+    }
+
+    #[test]
+    fn the_global_menu_lists_company_rooms_and_requests_the_browser() {
+        let mut app = app_with_test_workspaces(&["main"]);
+        let actions = global_menu_actions(&app.state);
+        let labels = app.state.global_menu_labels();
+        assert_eq!(actions.len(), labels.len());
+        assert!(actions.contains(&GlobalMenuAction::CompanyRooms));
+        assert_eq!(
+            actions
+                .iter()
+                .position(|a| *a == GlobalMenuAction::CompanyRooms),
+            labels.iter().position(|label| *label == "company rooms")
+        );
+
+        apply_global_menu_action(&mut app.state, GlobalMenuAction::CompanyRooms);
+        assert!(app.state.request_open_room_browser);
+        assert_ne!(app.state.mode, Mode::GlobalMenu);
+    }
+
+    #[test]
+    fn global_menu_offers_the_call_only_while_an_agent_pane_is_focused() {
+        let mut app = app_with_test_workspaces(&["main"]);
+        assert!(!global_menu_actions(&app.state).contains(&GlobalMenuAction::CallAgent));
+        assert!(!app.state.global_menu_labels().contains(&"call agent"));
+
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(pane_id)
+            .cloned()
+            .expect("terminal");
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("state")
+            .set_agent_name("author".into());
+        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_id);
+
+        let actions = global_menu_actions(&app.state);
+        let labels = app.state.global_menu_labels();
+        assert_eq!(actions.len(), labels.len());
+        assert!(actions.contains(&GlobalMenuAction::CallAgent));
+        assert!(labels.contains(&"call agent"));
+        assert_eq!(
+            actions
+                .iter()
+                .position(|a| *a == GlobalMenuAction::CallAgent),
+            labels.iter().position(|label| *label == "call agent")
+        );
+
+        apply_global_menu_action(&mut app.state, GlobalMenuAction::CallAgent);
+        assert!(app.state.request_open_agent_call);
+        assert_ne!(app.state.mode, Mode::GlobalMenu);
     }
 
     #[test]
@@ -2287,6 +2939,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                has_agent: false,
                 right_click_passthrough: false,
             },
             x: 0,
@@ -2397,6 +3050,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                has_agent: false,
                 right_click_passthrough: false,
             },
             x: 0,

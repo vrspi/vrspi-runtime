@@ -151,6 +151,83 @@ fn agent_start_and_prompt_requests_round_trip() {
 }
 
 #[test]
+fn agent_message_requests_round_trip() {
+    let send = Request {
+        id: "message".into(),
+        method: Method::AgentMessageSend(AgentMessageSendParams {
+            caller_pane_id: "w1:p1".into(),
+            target: "reviewer".into(),
+            body: "review auth.rs".into(),
+            reply_to: Some("msg_1".into()),
+            client_nonce: Some("turn-2".into()),
+        }),
+    };
+    let json = serde_json::to_value(&send).unwrap();
+    assert_eq!(json["method"], "agent.message.send");
+    assert_eq!(json["params"]["caller_pane_id"], "w1:p1");
+    assert_eq!(serde_json::from_value::<Request>(json).unwrap(), send);
+
+    let wait: Request = serde_json::from_value(serde_json::json!({
+        "id": "wait",
+        "method": "agent.message.wait",
+        "params": {
+            "caller_pane_id": "w1:p2",
+            "selector": {"type": "inbox", "after_sequence": 7},
+            "timeout_ms": 1000
+        }
+    }))
+    .unwrap();
+    assert!(matches!(
+        wait.method,
+        Method::AgentMessageWait(AgentMessageWaitParams {
+            selector: AgentMessageWaitSelector::Inbox { after_sequence: 7 },
+            ..
+        })
+    ));
+}
+
+#[test]
+fn agent_lobby_lifecycle_requests_round_trip() {
+    let requests = [
+        Request {
+            id: "leave".into(),
+            method: Method::AgentLobbyLeave(AgentLobbyTargetParams {
+                caller_pane_id: "w1:p1".into(),
+                lobby_id: "lobby_1".into(),
+            }),
+        },
+        Request {
+            id: "remove".into(),
+            method: Method::AgentLobbyRemove(AgentLobbyRemoveMemberParams {
+                caller_pane_id: "w1:p1".into(),
+                lobby_id: "lobby_1".into(),
+                member_instance_id: "agent_2".into(),
+            }),
+        },
+        Request {
+            id: "delete".into(),
+            method: Method::AgentLobbyDelete(AgentLobbyTargetParams {
+                caller_pane_id: "w1:p1".into(),
+                lobby_id: "lobby_1".into(),
+            }),
+        },
+        Request {
+            id: "rename".into(),
+            method: Method::AgentLobbyRename(AgentLobbyRenameParams {
+                caller_pane_id: "w1:p1".into(),
+                lobby_id: "lobby_1".into(),
+                label: "review".into(),
+            }),
+        },
+    ];
+
+    for request in requests {
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(serde_json::from_value::<Request>(json).unwrap(), request);
+    }
+}
+
+#[test]
 fn bundled_protocol_schema_refs_resolve_inside_bundle() {
     fn assert_no_standalone_refs(value: &serde_json::Value) {
         match value {
@@ -543,6 +620,26 @@ fn event_envelope_round_trips() {
                     }],
                     splits: vec![],
                 },
+            },
+        },
+        EventEnvelope {
+            event: EventKind::AgentLobbyUpdated,
+            data: EventData::AgentLobbyUpdated {
+                lobby: AgentLobby {
+                    lobby_id: "lobby_1".into(),
+                    label: "review".into(),
+                    owner_instance_id: Some("agent_1".into()),
+                    workspace_id: Some("w_1".into()),
+                    members: vec![],
+                    created_at_unix_ms: 1,
+                    revision: 2,
+                },
+            },
+        },
+        EventEnvelope {
+            event: EventKind::AgentLobbyDeleted,
+            data: EventData::AgentLobbyDeleted {
+                lobby_id: "lobby_1".into(),
             },
         },
     ];

@@ -114,7 +114,9 @@ fn spawn_server_with_path(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
@@ -151,7 +153,9 @@ fn spawn_client_process(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("client");
     cmd.env("HERDR_DISABLE_SOUND", "1");
     cmd.env("XDG_CONFIG_HOME", config_home);
@@ -845,7 +849,8 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     client_handshake(&mut client_b, CURRENT_PROTOCOL, 80, 24);
     let saw_working_on_client =
         wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
-            frame_contains_colored_symbol(frame, "●", (249, 226, 175))
+            // vrspi palette yellow (the default theme's working color).
+            frame_contains_colored_symbol(frame, "●", (224, 191, 122))
         })
         .expect("frame decoding should succeed");
     assert!(
@@ -864,7 +869,8 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
 
     let saw_blocked_on_client =
         wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
-            frame_contains_colored_symbol(frame, "●", (243, 139, 168))
+            // vrspi palette red (the default theme's blocked color).
+            frame_contains_colored_symbol(frame, "●", (226, 139, 130))
         })
         .expect("frame decoding should succeed");
     assert!(

@@ -108,7 +108,36 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// Catppuccin Mocha — the default.
+    /// Obsidian Studio: warm graphite, ivory type, and restrained copper accents.
+    pub fn vrspi() -> Self {
+        Self {
+            // The lime of the Vrspi mark (`public/brand/vrspi-icon.svg`,
+            // `#b4ef7f`), so the runtime and the product share one brand color.
+            accent: Color::Rgb(180, 239, 127),
+            panel_bg: Color::Rgb(24, 23, 25),
+            sidebar_bg: Color::Rgb(20, 19, 21),
+            // Selection surfaces carry a faint lime tint instead of copper, so
+            // a highlighted row reads as the same family as the accent.
+            active_row_bg: Color::Rgb(33, 42, 30),
+            selection_bg: Color::Rgb(44, 58, 38),
+            surface0: Color::Rgb(32, 29, 30),
+            surface1: Color::Rgb(62, 76, 56),
+            surface_dim: Color::Rgb(51, 46, 46),
+            overlay0: Color::Rgb(139, 131, 126),
+            overlay1: Color::Rgb(171, 160, 151),
+            text: Color::Rgb(239, 230, 217),
+            subtext0: Color::Rgb(192, 181, 169),
+            mauve: Color::Rgb(183, 167, 203),
+            green: Color::Rgb(163, 190, 140),
+            yellow: Color::Rgb(224, 191, 122),
+            red: Color::Rgb(226, 139, 130),
+            blue: Color::Rgb(147, 179, 198),
+            teal: Color::Rgb(145, 189, 175),
+            peach: Color::Rgb(180, 239, 127),
+        }
+    }
+
+    /// Catppuccin Mocha.
     pub fn catppuccin() -> Self {
         Self {
             accent: Color::Rgb(137, 180, 250), // blue
@@ -561,6 +590,7 @@ impl Palette {
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match crate::config::canonical_theme_name(name)? {
+            "vrspi" => Some(Self::vrspi()),
             "catppuccin" => Some(Self::catppuccin()),
             "catppuccin-latte" => Some(Self::catppuccin_latte()),
             "terminal" => Some(Self::terminal()),
@@ -869,6 +899,10 @@ pub enum ViewLayout {
 
 pub struct ViewState {
     pub layout: ViewLayout,
+    /// Client-only masthead, excluded from terminal sizing and pane hit targets.
+    pub runtime_header_rect: Rect,
+    /// Client-only brand footer, excluded from all terminal sizing.
+    pub runtime_footer_rect: Rect,
     pub sidebar_rect: Rect,
     pub workspace_card_areas: Vec<WorkspaceCardArea>,
     pub tab_bar_rect: Rect,
@@ -896,6 +930,7 @@ pub enum Mode {
     RenameWorkspace,
     RenameTab,
     RenamePane,
+    RenameLobby,
     NewLinkedWorktree,
     OpenExistingWorktree,
     ConfirmRemoveWorktree,
@@ -906,11 +941,21 @@ pub enum Mode {
     GlobalMenu,
     KeybindHelp,
     Navigator,
+    AgentLobbies,
+    AgentCall,
+    CompanyRooms,
 }
 
 impl Mode {
     pub(crate) fn mouse_motion_changes_view(self) -> bool {
-        matches!(self, Self::GlobalMenu | Self::ContextMenu | Self::Navigator)
+        matches!(
+            self,
+            Self::GlobalMenu
+                | Self::ContextMenu
+                | Self::Navigator
+                | Self::AgentLobbies
+                | Self::CompanyRooms
+        )
     }
 
     /// Whether keys in this mode are commands/navigation (an ASCII input source is wanted) rather
@@ -929,6 +974,7 @@ impl Mode {
             Mode::Prefix
                 | Mode::Navigate
                 | Mode::Navigator
+                | Mode::AgentLobbies
                 | Mode::Copy
                 | Mode::Resize
                 | Mode::ConfirmClose
@@ -1029,6 +1075,469 @@ pub(crate) struct NavigatorState {
     pub search_focused: bool,
     pub state_filter: Option<NavigatorStateFilter>,
     pub expanded_workspaces: std::collections::HashSet<String>,
+}
+
+/// One message in a lobby's conversation, flattened for display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LobbyThreadEntry {
+    pub message_id: String,
+    pub from: String,
+    pub to: String,
+    pub state: crate::api::schema::AgentMessageState,
+    /// Body text, or a placeholder once the sender revoked it.
+    pub body: String,
+    pub is_reply: bool,
+    /// The recipient incarnation is gone, so this can never be acknowledged.
+    /// Rendered as `orphaned` rather than `delivered`, which would imply the
+    /// exchange is still progressing.
+    pub recipient_gone: bool,
+}
+
+/// Which pane of a room the browser is showing.
+///
+/// Tabs the design calls for that have no data yet (tasks, activity) are
+/// deliberately absent rather than shown empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum RoomTab {
+    #[default]
+    Conversation,
+    Members,
+    Memory,
+}
+
+impl RoomTab {
+    pub(crate) const ALL: [RoomTab; 3] = [Self::Conversation, Self::Members, Self::Memory];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Conversation => "conversation",
+            Self::Members => "members",
+            Self::Memory => "memory",
+        }
+    }
+
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::Conversation => Self::Members,
+            Self::Members => Self::Memory,
+            Self::Memory => Self::Conversation,
+        }
+    }
+}
+
+/// One conversation turn, flattened for display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoomEventRow {
+    pub event_id: String,
+    /// `host` or `@handle`, resolved when the snapshot is taken so render does
+    /// not look members up.
+    pub from: String,
+    pub body: String,
+    /// Handles this turn actually activated. Empty means it was a room note
+    /// that woke nobody.
+    pub recipients: Vec<String>,
+}
+
+/// Whether a seat can receive a message right now.
+///
+/// A seat that looks bound can still be unreachable, and until this was shown
+/// an orchestrator stuck at a prompt looked identical to one ignoring the room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum SeatReadiness {
+    /// Nothing is bound to the seat.
+    #[default]
+    NoAgent,
+    /// Bound to an agent that is not running.
+    Offline,
+    /// Settled at its prompt and will receive on the next pass.
+    Ready,
+    /// Mid-turn; mail waits until it finishes.
+    Working,
+    /// Waiting at an approval or question dialog. Mail cannot be typed into a
+    /// prompt, so it waits until the operator answers that dialog.
+    Blocked,
+}
+
+impl SeatReadiness {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::NoAgent => "no agent",
+            Self::Offline => "offline",
+            Self::Ready => "ready",
+            Self::Working => "working",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoomMemberRow {
+    /// Seat id, carried so a click on a row acts on that seat rather than on
+    /// whatever the handle currently resolves to.
+    pub member_id: String,
+    pub handle: String,
+    pub role: Option<String>,
+    pub orchestrator: bool,
+    pub bound: bool,
+    /// Whether the seat can be handed a message right now, and if not, why.
+    pub readiness: SeatReadiness,
+    /// Pane or tab name of the agent filling the seat, when one is running.
+    pub place: Option<String>,
+    /// Messages this seat is still owed.
+    pub waiting: usize,
+    /// Messages handed to the agent whose outcome is not yet known.
+    pub in_flight: usize,
+    /// Messages that were interrupted mid-delivery and are never retried, so
+    /// they wait for a human rather than for the runtime.
+    pub needs_attention: usize,
+    /// Messages this seat can no longer be given, because the agent they were
+    /// addressed to was replaced while they were still queued.
+    pub lost: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoomRecordRow {
+    pub record_id: String,
+    pub title: String,
+    pub summary: String,
+    pub body: String,
+    /// `host` or `@handle`, resolved when the snapshot is taken.
+    pub author: String,
+    pub accepted: bool,
+}
+
+/// Snapshot of one room for display, taken outside render.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct RoomSnapshot {
+    pub room_id: String,
+    pub name: String,
+    pub workspace_id: String,
+    pub objective: String,
+    pub lifecycle: String,
+    pub members: Vec<RoomMemberRow>,
+    pub events: Vec<RoomEventRow>,
+    pub records: Vec<RoomRecordRow>,
+}
+
+/// A room's right-click menu inside the browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RoomRowMenu {
+    pub room_index: usize,
+    pub x: u16,
+    pub y: u16,
+    /// Deleting takes the room's history with it, so the item asks twice.
+    pub confirming: bool,
+}
+
+/// What the browser is filling in.
+///
+/// Creating a room and adding a seat are both "two fields and a confirm", so
+/// one form shape covers them and the mouse layer has one target set to learn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RoomFormKind {
+    /// A new room for this workspace, opened from the workspace context menu.
+    CreateRoom { workspace_id: String },
+    /// A new seat in this room.
+    AddMember { room_id: String, room_name: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RoomFormField {
+    Primary,
+    Secondary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoomFormState {
+    pub kind: RoomFormKind,
+    /// Room name, or member handle.
+    pub primary: String,
+    /// Objective, or member role.
+    pub secondary: String,
+    /// Only meaningful when adding a member.
+    pub orchestrator: bool,
+    pub focus: RoomFormField,
+}
+
+impl RoomFormState {
+    pub(crate) fn field_mut(&mut self) -> &mut String {
+        match self.focus {
+            RoomFormField::Primary => &mut self.primary,
+            RoomFormField::Secondary => &mut self.secondary,
+        }
+    }
+
+    pub(crate) fn creating_room(&self) -> bool {
+        matches!(self.kind, RoomFormKind::CreateRoom { .. })
+    }
+}
+
+/// A live agent that could take a seat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoomAgentCandidate {
+    /// Public pane id, used verbatim as the bind target.
+    pub pane_id: String,
+    pub label: String,
+    /// Pane or tab name the operator gave this agent's place.
+    pub place: Option<String>,
+    pub workspace: String,
+    /// Runs in the room's own workspace, which is the usual intent.
+    pub same_workspace: bool,
+}
+
+/// Picking which agent occupies a seat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoomBindState {
+    pub room_id: String,
+    pub member_id: String,
+    pub handle: String,
+    pub candidates: Vec<RoomAgentCandidate>,
+    pub selected: usize,
+    /// Candidates scrolled past the top of the list. A machine can host more
+    /// agents than the picker is tall.
+    pub scroll: usize,
+}
+
+/// TUI-only state for the company room browser. Rooms themselves live on the
+/// server; this holds only what the operator is looking at.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RoomBrowserState {
+    /// Room list, newest last, refreshed outside render.
+    pub rooms: Vec<RoomSnapshot>,
+    pub selected: usize,
+    pub scroll: usize,
+    pub tab: RoomTab,
+    /// Rows scrolled back from the newest turn.
+    pub content_scroll: usize,
+    /// Composer text when posting; `None` when browsing.
+    pub composer: Option<String>,
+    /// Room or seat being created; `None` when browsing.
+    pub form: Option<RoomFormState>,
+    /// Seat being bound to an agent; `None` when browsing.
+    pub bind: Option<RoomBindState>,
+    /// Seat whose removal has been clicked once. Removing a seat drops its
+    /// pending mail, so the row asks for a second click rather than acting on
+    /// a stray one.
+    pub pending_remove: Option<String>,
+    /// Turns and records shown in full rather than as a single line.
+    pub expanded: std::collections::HashSet<String>,
+    /// Room whose right-click menu is open, with the corner it was opened at.
+    pub row_menu: Option<RoomRowMenu>,
+    /// Outcome of the last action, shown until the next one.
+    pub notice: Option<String>,
+}
+
+impl RoomBrowserState {
+    pub(crate) fn selected_room(&self) -> Option<&RoomSnapshot> {
+        self.rooms.get(self.selected)
+    }
+
+    /// Clears every transient overlay, so leaving one never leaves another
+    /// half-open behind it.
+    pub(crate) fn clear_overlays(&mut self) {
+        self.composer = None;
+        self.form = None;
+        self.bind = None;
+        self.pending_remove = None;
+        self.row_menu = None;
+    }
+
+    /// Flips one turn or record between its one-line and full form.
+    pub(crate) fn toggle_expanded(&mut self, id: &str) {
+        if !self.expanded.remove(id) {
+            self.expanded.insert(id.to_string());
+        }
+    }
+}
+
+/// Lobby lifecycle actions reachable from the browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LobbyLifecycleAction {
+    Leave,
+    Delete,
+    /// Remove the highlighted member. Owner-only, like rename and delete.
+    RemoveMember,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct LobbyBrowserState {
+    pub lobbies: Vec<crate::api::schema::AgentLobby>,
+    pub selected: usize,
+    pub scroll: usize,
+    /// Conversation of the selected lobby, oldest first.
+    pub thread: Vec<LobbyThreadEntry>,
+    /// Highlighted turn, which is where a "this message and below" forward
+    /// starts. `None` until the operator moves into the conversation.
+    pub thread_cursor: Option<usize>,
+    /// Result of the last lifecycle action, shown until the next one. Carries
+    /// the runtime's own refusal text so a rejected action is never silent.
+    pub notice: Option<String>,
+    /// Highlighted member, which is the target of a removal. `None` until the
+    /// operator moves into the member list.
+    pub member_cursor: Option<usize>,
+    /// First visible thread row, so long conversations can be scrolled back.
+    pub thread_scroll: usize,
+}
+
+impl AppState {
+    /// Re-reads lobbies and the selected lobby's conversation from
+    /// collaboration state. Returns whether the visible snapshot changed.
+    ///
+    /// The browser holds a snapshot rather than reading during render, so this
+    /// is the one place that decides when the operator's view is current: on
+    /// open, on selection change, and on every pass while the browser is open.
+    /// It reports change so an unchanged conversation costs no redraw.
+    pub(crate) fn refresh_lobby_browser(&mut self) -> bool {
+        let lobbies = self.collaboration.lobbies();
+        let selected = if lobbies.is_empty() {
+            0
+        } else {
+            self.lobby_browser.selected.min(lobbies.len() - 1)
+        };
+        let thread = lobbies
+            .get(selected)
+            .map(|lobby| {
+                self.collaboration
+                    .lobby_messages(&lobby.lobby_id)
+                    .into_iter()
+                    .map(|message| LobbyThreadEntry {
+                        message_id: message.message_id.clone(),
+                        from: crate::collaboration::party_display_name(&message.sender),
+                        to: crate::collaboration::party_display_name(&message.recipient),
+                        state: message.state,
+                        body: message
+                            .body
+                            .unwrap_or_else(|| "(revoked by sender)".to_string()),
+                        is_reply: message.reply_to.is_some(),
+                        recipient_gone: !matches!(
+                            message.state,
+                            crate::api::schema::AgentMessageState::Acknowledged
+                                | crate::api::schema::AgentMessageState::Revoked
+                        ) && !self
+                            .collaboration
+                            .instance_is_active(&message.recipient.instance_id),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let changed = lobbies != self.lobby_browser.lobbies
+            || selected != self.lobby_browser.selected
+            || thread != self.lobby_browser.thread;
+        if !changed {
+            return false;
+        }
+        // A conversation that gained a turn should show it, not keep the
+        // operator parked on older history.
+        if thread.len() != self.lobby_browser.thread.len() {
+            self.lobby_browser.thread_scroll = 0;
+        }
+        self.lobby_browser.lobbies = lobbies;
+        self.lobby_browser.selected = selected;
+        self.lobby_browser.thread = thread;
+        true
+    }
+}
+
+/// One selectable recipient in the "call another agent" picker.
+///
+/// Built once when the modal opens from live runtime facts; the modal never
+/// re-derives it during render.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCallCandidate {
+    /// Public pane id, used verbatim as the runtime message target.
+    pub pane_id: String,
+    pub label: String,
+    pub agent: String,
+    pub workspace: String,
+    pub status: crate::api::schema::AgentStatus,
+    /// Already shares an active lobby with the caller, so no connect step is
+    /// needed before the prompt becomes eligible for automatic delivery.
+    pub connected: bool,
+}
+
+/// How much of a conversation a forward carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ForwardScope {
+    /// Every turn in the lobby.
+    WholeConversation,
+    /// The highlighted turn and everything after it.
+    FromSelected,
+}
+
+/// A conversation excerpt being forwarded, resolved when the operator picks it
+/// so the composer never re-derives it while rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ForwardPayload {
+    pub scope: ForwardScope,
+    pub source_lobby: String,
+    /// Turns in order, already flattened for display and transport.
+    pub entries: Vec<LobbyThreadEntry>,
+    /// Turns dropped from the front because the transcript exceeded the
+    /// message body limit. Shown to the operator and marked in the body.
+    pub dropped: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum AgentCallStep {
+    /// Choosing which agent to call.
+    #[default]
+    Pick,
+    /// Writing the prompt for the chosen agent.
+    Compose,
+    /// Prompt accepted by the runtime; showing what happens next.
+    Sent,
+}
+
+/// TUI-only state for the "call another agent" modal. The lobby, the message,
+/// and delivery all live in server state; this only tracks what the operator is
+/// currently looking at.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct AgentCallState {
+    /// Public pane id of the agent the call is sent as.
+    pub caller_pane_id: String,
+    pub caller_label: String,
+    pub candidates: Vec<AgentCallCandidate>,
+    pub selected: usize,
+    pub scroll: usize,
+    pub prompt: String,
+    pub step: AgentCallStep,
+    pub error: Option<String>,
+    /// Human-readable outcome shown on the `Sent` step.
+    pub receipt: Option<String>,
+    /// Conversation excerpt to prepend to the prompt, when this call was
+    /// started as a forward rather than a fresh message.
+    pub forward: Option<ForwardPayload>,
+}
+
+impl AppState {
+    /// Whether the focused pane of the active workspace hosts an agent, which
+    /// is what makes a global "call agent" entry meaningful.
+    pub(crate) fn focused_pane_hosts_agent(&self) -> bool {
+        self.active
+            .and_then(|ws_idx| self.workspaces.get(ws_idx))
+            .and_then(|workspace| {
+                let pane_id = workspace.focused_pane_id()?;
+                let pane = workspace.pane_state(pane_id)?;
+                self.terminals.get(&pane.attached_terminal_id)
+            })
+            .is_some_and(|terminal| terminal.is_agent_terminal())
+    }
+}
+
+impl AgentCallState {
+    pub(crate) fn selected_candidate(&self) -> Option<&AgentCallCandidate> {
+        self.candidates.get(self.selected)
+    }
+
+    pub(crate) fn move_selection(&mut self, delta: isize) {
+        if self.candidates.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        let last = self.candidates.len() - 1;
+        self.selected = self.selected.saturating_add_signed(delta).min(last);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1275,9 +1784,27 @@ pub enum ContextMenuKind {
         pane_id: PaneId,
         source_pane_id: Option<PaneId>,
         has_manual_label: bool,
+        has_agent: bool,
         right_click_passthrough: bool,
     },
 }
+
+/// Workspace context-menu label that opens the room creator for that
+/// workspace. Shared with the input layer, which matches on it.
+pub(crate) const NEW_COMPANY_ROOM_ITEM: &str = "New company room...";
+
+/// Whether agent lobbies appear in the menu and sidebar.
+///
+/// Company rooms cover what lobbies were for — a shared conversation with
+/// routing, budgets, and memory — so lobbies are hidden rather than offered as
+/// a second, weaker way to do the same thing. They still exist underneath:
+/// "call agent" connects agents through one.
+pub(crate) const SHOW_AGENT_LOBBIES: bool = false;
+
+/// Pane context-menu label for restoring the app's own right-click menu.
+///
+/// Shared with the input layer, which matches on it, so the two cannot drift.
+pub(crate) const USE_APP_RIGHT_CLICK_MENU_ITEM: &str = "Use Vrspi right-click menu";
 
 /// Right-click context menu state.
 pub struct ContextMenuState {
@@ -1290,16 +1817,27 @@ pub struct ContextMenuState {
 impl ContextMenuState {
     pub fn items(&self) -> Vec<&'static str> {
         match self.kind {
-            ContextMenuKind::Workspace { .. } => vec!["Rename", "Close"],
+            ContextMenuKind::Workspace { .. } => vec!["Rename", NEW_COMPANY_ROOM_ITEM, "Close"],
             ContextMenuKind::GitWorkspace {
                 is_linked_worktree: false,
                 has_worktree_children: false,
                 ..
-            } => vec!["Rename", "Close", "New worktree", "Open worktree..."],
+            } => vec![
+                "Rename",
+                NEW_COMPANY_ROOM_ITEM,
+                "Close",
+                "New worktree",
+                "Open worktree...",
+            ],
             ContextMenuKind::GitWorkspace {
                 is_linked_worktree: true,
                 ..
-            } => vec!["Rename", "Close", "Delete worktree checkout..."],
+            } => vec![
+                "Rename",
+                NEW_COMPANY_ROOM_ITEM,
+                "Close",
+                "Delete worktree checkout...",
+            ],
             ContextMenuKind::GitWorkspace {
                 is_linked_worktree: false,
                 has_worktree_children: true,
@@ -1307,6 +1845,7 @@ impl ContextMenuState {
                 ..
             } => vec![
                 "Rename",
+                NEW_COMPANY_ROOM_ITEM,
                 "Close group",
                 "New worktree",
                 "Open worktree...",
@@ -1316,6 +1855,7 @@ impl ContextMenuState {
             ContextMenuKind::Pane {
                 source_pane_id,
                 has_manual_label,
+                has_agent,
                 right_click_passthrough,
                 ..
             } => {
@@ -1326,9 +1866,13 @@ impl ContextMenuState {
                 if source_pane_id.is_some() {
                     items.push("Swap with focused pane");
                 }
+                if has_agent {
+                    items.push("Call another agent");
+                    items.push("Connect workspace agents");
+                }
                 items.extend(["Split right", "Split down", "Zoom"]);
                 items.push(if right_click_passthrough {
-                    "Use Herdr right-click menu"
+                    USE_APP_RIGHT_CLICK_MENU_ITEM
                 } else {
                     "Send right-clicks to pane"
                 });
@@ -1436,6 +1980,10 @@ pub enum TabBarStatusSegment {
 pub struct AppState {
     pub terminals:
         std::collections::HashMap<crate::terminal::TerminalId, crate::terminal::TerminalState>,
+    /// Server-owned live-session agent identities and retained collaboration messages.
+    /// Rendering and layout code must not consult this state.
+    pub(crate) collaboration: crate::collaboration::CollaborationState,
+    pub(crate) company: crate::company::CompanyState,
     /// Terminal ids whose size is currently owned by a direct attach client.
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
     pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
@@ -1473,11 +2021,16 @@ pub struct AppState {
     pub requested_new_tab_name: Option<String>,
     pub pending_workspace_create_cwd: Option<std::path::PathBuf>,
     pub rename_pane_target: Option<PaneId>,
+    /// Lobby being renamed through the shared rename overlay.
+    pub(crate) rename_lobby_target: Option<String>,
     pub worktree_create: Option<WorktreeCreateState>,
     pub worktree_open: Option<WorktreeOpenState>,
     pub worktree_remove: Option<WorktreeRemoveState>,
     pub worktree_directory: std::path::PathBuf,
     pub collapsed_space_keys: std::collections::HashSet<String>,
+    /// Workspaces whose agents are folded away in the sidebar's grouped
+    /// agent list. Presentation only; nothing about the agents changes.
+    pub collapsed_agent_groups: std::collections::HashSet<String>,
     pub request_complete_onboarding: bool,
     pub name_input: String,
     pub name_input_replace_on_type: bool,
@@ -1485,6 +2038,16 @@ pub struct AppState {
     pub product_announcement: Option<ProductAnnouncementState>,
     pub keybind_help: KeybindHelpState,
     pub navigator: NavigatorState,
+    pub(crate) lobby_browser: LobbyBrowserState,
+    pub(crate) agent_call: Option<AgentCallState>,
+    pub(crate) room_browser: RoomBrowserState,
+    /// Set by the global menu; the App opens the call modal for the focused
+    /// agent pane on its next pass.
+    pub(crate) request_open_agent_call: bool,
+    /// Set by the global menu; the App opens the room browser on its next pass.
+    pub(crate) request_open_room_browser: bool,
+    /// Workspace index whose context menu asked for a new company room.
+    pub(crate) request_new_company_room: Option<usize>,
     pub copy_mode: Option<CopyModeState>,
     pub workspace_scroll: usize,
     pub agent_panel_scroll: usize,
@@ -1830,6 +2393,8 @@ impl AppState {
     pub fn test_new() -> Self {
         Self {
             terminals: std::collections::HashMap::new(),
+            collaboration: crate::collaboration::CollaborationState::default(),
+            company: crate::company::CompanyState::default(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
@@ -1858,11 +2423,13 @@ impl AppState {
             requested_new_tab_name: None,
             pending_workspace_create_cwd: None,
             rename_pane_target: None,
+            rename_lobby_target: None,
             worktree_create: None,
             worktree_open: None,
             worktree_remove: None,
             worktree_directory: std::path::PathBuf::from("/tmp/herdr-worktrees"),
             collapsed_space_keys: std::collections::HashSet::new(),
+            collapsed_agent_groups: std::collections::HashSet::new(),
             request_complete_onboarding: false,
             name_input: String::new(),
             name_input_replace_on_type: false,
@@ -1870,6 +2437,12 @@ impl AppState {
             product_announcement: None,
             keybind_help: KeybindHelpState::default(),
             navigator: NavigatorState::default(),
+            lobby_browser: LobbyBrowserState::default(),
+            agent_call: None,
+            room_browser: RoomBrowserState::default(),
+            request_open_agent_call: false,
+            request_open_room_browser: false,
+            request_new_company_room: None,
             copy_mode: None,
             workspace_scroll: 0,
             agent_panel_scroll: 0,
@@ -1878,6 +2451,8 @@ impl AppState {
             mobile_switcher_scroll: 0,
             view: ViewState {
                 layout: ViewLayout::Desktop,
+                runtime_header_rect: Rect::default(),
+                runtime_footer_rect: Rect::default(),
                 sidebar_rect: Rect::default(),
                 workspace_card_areas: Vec::new(),
                 tab_bar_rect: Rect::default(),
@@ -2558,8 +3133,8 @@ mod tests {
     }
 
     #[test]
-    fn built_in_themes_leave_sidebar_background_unset() {
-        for name in THEME_NAMES {
+    fn legacy_themes_leave_sidebar_background_unset() {
+        for name in THEME_NAMES.iter().filter(|name| **name != "vrspi") {
             let palette = Palette::from_name(name).unwrap();
             assert_eq!(
                 palette.sidebar_bg,
@@ -2637,7 +3212,12 @@ mod tests {
 
         assert_eq!(
             menu.items(),
-            &["Rename", "Close", "Delete worktree checkout..."]
+            &[
+                "Rename",
+                NEW_COMPANY_ROOM_ITEM,
+                "Close",
+                "Delete worktree checkout..."
+            ]
         );
     }
 
@@ -2657,7 +3237,13 @@ mod tests {
 
         assert_eq!(
             menu.items(),
-            &["Rename", "Close", "New worktree", "Open worktree..."]
+            &[
+                "Rename",
+                NEW_COMPANY_ROOM_ITEM,
+                "Close",
+                "New worktree",
+                "Open worktree..."
+            ]
         );
     }
 
@@ -2679,6 +3265,7 @@ mod tests {
             menu.items(),
             &[
                 "Rename",
+                NEW_COMPANY_ROOM_ITEM,
                 "Close group",
                 "New worktree",
                 "Open worktree...",

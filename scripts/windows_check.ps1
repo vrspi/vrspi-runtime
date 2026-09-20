@@ -42,7 +42,7 @@ function Invoke-CargoTestFilter {
         "--target",
         "x86_64-pc-windows-msvc",
         "--bin",
-        "herdr",
+        "vrspi",
         $Filter
     )
     $harnessArguments = @("--list")
@@ -81,7 +81,7 @@ Invoke-Checked cargo @("fmt", "--check")
 Invoke-CargoWithZigCacheRecovery @(
     "clippy",
     "--bin",
-    "herdr",
+    "vrspi",
     "--locked",
     "--target",
     "x86_64-pc-windows-msvc",

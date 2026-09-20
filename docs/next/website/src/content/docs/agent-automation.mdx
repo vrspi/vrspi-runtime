@@ -69,6 +69,187 @@ herdr agent rename w1:p2 reviewer
 | Send keys to an agent's interactive UI | `agent send-keys` |
 | Wait for agent lifecycle state | `agent wait` |
 
+## Agent-to-agent messages
+
+Every managed agent inherits `HERDR_ENV=1`, `HERDR_PANE_ID`, and the local
+Herdr socket. `herdr agent self` resolves that environment to the calling agent
+and returns its live identity plus an immutable collaboration `instance_id`.
+The instance survives a pane move or rename, but changes when that agent exits
+or is replaced.
+
+Use the retained mailbox for agent coordination. Messages remain manual until
+the agents share a lobby:
+
+```bash
+herdr agent message send reviewer "Review auth.rs and acknowledge this message"
+herdr agent message inbox --unacked
+herdr agent message ack msg_1
+herdr agent message wait --after 12 --timeout 120000
+herdr agent message wait msg_1 --until acknowledged --timeout 120000
+herdr agent lobby connect reviewer
+herdr agent lobby list
+```
+
+`send` targets the same unique live agent names or pane IDs as other agent
+commands. `inbox` and `get` mark inbound messages `observed`; `ack` is an
+explicit recipient-only completion signal. The sender may `revoke` a message
+until automatic delivery starts or it is acknowledged. Revocation keeps a
+tombstone and erases the retained body, so it cannot silently disappear or be
+delivered to a replacement agent.
+
+Connecting two agents is idempotent and opts those immutable agent instances
+into automatic inbox delivery. In the TUI, right-click any recognized agent
+pane and choose **Connect workspace agents** to discover and connect all live
+agents in that workspace in one action. Open **agent lobbies** from the global
+menu to see every lobby and its active or offline members.
+
+## Company rooms
+
+A company room is a host-owned team bound to one workspace. A workspace may
+hold several rooms; a room belongs to exactly one workspace.
+
+```bash
+vrspi room create w1 "Product team" --objective "Improve onboarding"
+vrspi room member add room_1 Codex --role developer
+vrspi room member add room_1 orchestrator --orchestrator
+vrspi room member bind room_1 seat_1 codex-agent
+vrspi room post room_1 "@Codex, overview the project"
+```
+
+**Room visibility is not model delivery.** A post stores one room event plus a
+delivery for each explicitly addressed member. Mentioning `@Codex` activates
+Codex alone: other members can read the event later without any model call, so
+a room with many members costs the same as a room with two.
+
+Mentions inside code fences, blockquotes, indented blocks, and backtick spans
+are inert, so pasting a log or forwarding a transcript never dispatches work.
+An unknown mention is refused rather than guessed at. An untagged host post
+routes to the orchestrator when the room has one, and is otherwise stored as a
+room note with no recipients.
+
+Exactly one seat per room may be the orchestrator, and its handle is always
+`orchestrator`. Handles are unique within a room and resolve case-insensitively
+while keeping the capitalization you chose.
+
+A seat is durable; the live agent bound to it is not. Replacing or unbinding an
+agent orphans mail addressed to the previous incarnation, so a replacement is
+never handed the old process's prompts.
+
+### The room browser
+
+Open **company rooms** from the global menu (☰). The browser shows one room at
+a time across three tabs:
+
+| Key | Action |
+|---|---|
+| `↑` `↓` | select a room |
+| `tab` or `1` `2` `3` | conversation / members / memory |
+| `u` `d` | scroll the conversation |
+| `p` | post to the selected room |
+| `esc` | close |
+
+The conversation names who each turn actually woke, so the difference between a
+targeted post and a room note is visible at a glance:
+
+```
+│ host                                          → @Codex │
+│   @Codex, overview the project                         │
+│ host                             room note · woke nobody │
+│   just a note for the record                            │
+```
+
+The members tab marks which seats have a live agent bound — an unbound seat
+cannot be activated, so its mail waits. The memory tab separates `accepted`
+knowledge from `proposed` records awaiting your acceptance.
+
+Posting reports what actually happened ("posted; 1 member activated", or
+"posted as a room note; nobody was activated"). If a mention does not resolve,
+the draft is kept so you can fix the handle rather than retype the message.
+
+### Activation budgets
+
+Every post belongs to an objective identified by a root ID. Each objective
+carries an activation allowance (12 by default) shared by every reply in that
+chain, so an agent cannot mint a fresh budget by starting a new thread. When the
+allowance is spent the runtime stops dispatching and only the host can extend
+it:
+
+```bash
+vrspi room allowance extend room_1 evt_1 6
+```
+
+### Shared memory
+
+Room knowledge is searchable and revisioned. Search returns at most five short
+hits; bodies are fetched separately so a search cannot fill an agent's context.
+
+```bash
+vrspi room memory put room_1 "Architecture map" --summary "how it fits together" --body "..."
+vrspi room memory search room_1 "architecture"
+vrspi room memory get room_1 rec_1
+```
+
+Search is scoped to one room before ranking, so no room can see another's
+records. Updating a record requires the revision you read it at; a stale write
+is a conflict rather than a silent overwrite. A record written by an agent
+stays `proposed` until the host accepts it, so an agent cannot write policy into
+memory and have it count.
+
+### Forwarding a conversation
+
+Inside **agent lobbies**, `J` and `K` move a `▶` cursor through the
+conversation. `f` forwards the highlighted turn and everything after it; `F`
+forwards the whole conversation. Either opens the call composer pre-loaded, and
+whatever you type is appended under a `--- forwarded with this request ---`
+separator so the recipient can tell your words from forwarded content. A
+forward needs no prompt of its own.
+
+Long transcripts are trimmed **oldest first** to fit the 16 KiB body limit. The
+composer shows how many turns were dropped before you send, and the body says
+so too, so truncation is never silent.
+
+### Spaces and lobby lifecycle
+
+A lobby is either a **space** — scoped to one workspace, holding every agent in
+it — or a **direct** lobby between two agents. The browser labels which is
+which and shows how many members are live. `x` leaves the selected lobby and
+`D` deletes it; renaming, removing a member, and deleting require the lobby
+owner, and a refusal is shown in the browser rather than failing silently.
+
+A turn whose recipient incarnation no longer exists is shown as `orphaned`
+rather than `delivered`, because it can never be acknowledged.
+
+### Calling another agent from the TUI
+
+A focused agent pane carries a **⇄ call agent** button on its top border, and
+its right-click menu offers **Call another agent**. Both open a two-step modal:
+pick a recognized agent, then write the prompt. Sending connects the two agents
+and hands the prompt to the runtime in one action, so no lobby setup or CLI call
+is needed first.
+
+The modal lists every other recognized agent with its live status and marks the
+ones already sharing a lobby as `linked`. `↑` `↓` select, `↵` advances and then
+sends, `alt+↵` writes a newline, `^b` goes back, and `esc` closes. The
+confirmation names what the runtime will do next: an idle agent receives the
+prompt immediately, and a working agent receives it the moment it goes idle.
+
+The runtime submits the oldest pending lobby message only while its recipient
+is idle. It submits at most one message per idle→active→idle lifecycle and
+marks it `injected`; manually reading a pending message marks it `observed` and
+suppresses redundant injection. Peer content is JSON-escaped inside a
+runtime-owned envelope, so terminal control bytes are never copied directly.
+
+Messages are server-owned and retained for the live Herdr session, including a
+live binary handoff. They are not restored after a cold server restart. One
+body is limited to 16 KiB and the live mailbox is bounded. The API socket uses
+Herdr's existing same-user trust model: caller pane identity provides
+attribution, not isolation from another process running as the same OS user.
+
+`agent prompt` remains the explicit way to submit arbitrary work to an
+interactive agent UI. Lobby delivery is the narrow automatic path for retained
+peer messages and never targets working, blocked, unknown, startup-pending, or
+replacement agents.
+
 `agent prompt` submits text plus encoded Enter and honors the terminal's live bracketed-paste mode. It can prompt an agent that is already working. If the agent is already `blocked`, it returns `agent_blocked` without sending terminal input; inspect the dialog and use `agent send-keys` for a deliberate response. Use `agent send-keys` for interactions such as `esc`, `up`, `enter`, or `ctrl+c`; `escape` is accepted as an alias for `esc`. Use the pane input commands when you deliberately want raw terminal control.
 
 Pane input addresses the terminal regardless of its current occupant. Agent input resolves the live agent and rejects the operation if that agent no longer controls the pane.

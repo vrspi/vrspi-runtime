@@ -2,10 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use super::agents::AgentInfo;
 use super::common::{ClientWindowTitleReason, NotificationShowReason};
+use super::company::{RoomBudgetInfo, RoomEventInfo, RoomInfo, RoomRecordHit, RoomRecordInfo};
 use super::events::EventEnvelope;
 use super::integrations::{
     IntegrationInstallResult, IntegrationTarget, IntegrationUninstallResult,
 };
+use super::messages::{AgentLobby, AgentMessage};
 use super::panes::{
     LayoutDescription, PaneEdgesResult, PaneFocusDirectionResult, PaneInfo, PaneLayoutSnapshot,
     PaneMoveResult, PaneNeighborResult, PaneProcessInfo, PaneReadResult, PaneResizeResult,
@@ -97,6 +99,10 @@ pub enum ResponseResult {
     AgentInfo {
         agent: AgentInfo,
     },
+    AgentSelf {
+        agent: AgentInfo,
+        instance_id: String,
+    },
     AgentStarted {
         agent: AgentInfo,
         argv: Vec<String>,
@@ -106,6 +112,48 @@ pub enum ResponseResult {
     },
     AgentList {
         agents: Vec<AgentInfo>,
+    },
+    AgentMessage {
+        message: AgentMessage,
+    },
+    AgentMessageList {
+        messages: Vec<AgentMessage>,
+        latest_sequence: u64,
+        /// More matches exist after this page. Additive with a default so
+        /// older clients keep parsing the response unchanged.
+        #[serde(default)]
+        has_more: bool,
+        /// Pass back as `after_sequence` to fetch the next page.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next_after_sequence: Option<u64>,
+    },
+    RoomInfo {
+        room: RoomInfo,
+    },
+    RoomList {
+        rooms: Vec<RoomInfo>,
+    },
+    RoomEvent {
+        event: RoomEventInfo,
+    },
+    RoomEventList {
+        events: Vec<RoomEventInfo>,
+        latest_sequence: u64,
+    },
+    RoomRecord {
+        record: RoomRecordInfo,
+    },
+    RoomRecordHits {
+        hits: Vec<RoomRecordHit>,
+    },
+    RoomBudget {
+        budget: RoomBudgetInfo,
+    },
+    AgentLobby {
+        lobby: AgentLobby,
+    },
+    AgentLobbyList {
+        lobbies: Vec<AgentLobby>,
     },
     AgentView {
         active: bool,

@@ -25,7 +25,7 @@ use serde::{Deserialize, Deserializer};
 const STABLE_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
 const PREVIEW_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/preview.json";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/herdr.json";
-const HERDR_UPDATE_COMMAND: &str = "herdr update";
+const HERDR_UPDATE_COMMAND: &str = concat!(env!("CARGO_BIN_NAME"), " update");
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade herdr";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
@@ -955,18 +955,22 @@ fn plan_running_server_updates(
             Some(server) => server,
             None if target.must_be_running => {
                 return Err(format!(
-                        "herdr target {} looked running, but its status API did not respond at {}. stop it with `{}` and run `herdr update` again",
+                        "{} target {} looked running, but its status API did not respond at {}. stop it with `{}` and run `{}` again",
+                    crate::EXECUTABLE_NAME,
                     target.label,
                     target.socket_path.display(),
-                    target.stop_command
+                    target.stop_command,
+                    HERDR_UPDATE_COMMAND
                 ));
             }
             None if client_protocol_server_is_running_at(&target.client_socket_path) => {
                 return Err(format!(
-                    "herdr target {} has a client socket, but its status API did not respond at {}. stop it with `{}` and run `herdr update` again",
+                    "{} target {} has a client socket, but its status API did not respond at {}. stop it with `{}` and run `{}` again",
+                    crate::EXECUTABLE_NAME,
                     target.label,
                     target.socket_path.display(),
-                    target.stop_command
+                    target.stop_command,
+                    HERDR_UPDATE_COMMAND
                 ));
             }
             None => continue,
@@ -1022,9 +1026,10 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
             name: None,
             label: socket_path.display().to_string(),
             stop_command: format!(
-                "{}={} herdr server stop",
+                "{}={} {} server stop",
                 crate::api::SOCKET_PATH_ENV_VAR,
-                socket_path.display()
+                socket_path.display(),
+                crate::EXECUTABLE_NAME
             ),
             attach_command: None,
             client_socket_path: crate::server::socket_paths::client_socket_path_from_overrides(
@@ -1037,7 +1042,7 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
     }
 
     let sessions = crate::session::list_sessions()
-        .map_err(|err| format!("failed to list herdr sessions: {err}"))?;
+        .map_err(|err| format!("failed to list {} sessions: {err}", crate::EXECUTABLE_NAME))?;
     Ok(sessions
         .into_iter()
         .map(|session| RunningUpdateTarget {
@@ -1052,9 +1057,9 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
                 Some(&session.name)
             }),
             attach_command: Some(if session.default {
-                "herdr".to_string()
+                crate::EXECUTABLE_NAME.to_string()
             } else {
-                format!("herdr session attach {}", session.name)
+                format!("{} session attach {}", crate::EXECUTABLE_NAME, session.name)
             }),
             label: session.name.clone(),
             client_socket_path: crate::session::client_socket_path_for(if session.default {
@@ -1077,7 +1082,7 @@ fn target_client_protocol_server_is_running() -> Result<bool, String> {
     }
 
     let sessions = crate::session::list_sessions()
-        .map_err(|err| format!("failed to list herdr sessions: {err}"))?;
+        .map_err(|err| format!("failed to list {} sessions: {err}", crate::EXECUTABLE_NAME))?;
     Ok(sessions.into_iter().any(|session| {
         let client_socket = crate::session::client_socket_path_for(if session.default {
             None
@@ -1467,7 +1472,8 @@ fn recover_failed_live_handoff_for_update(
         }
         FailedHandoffServerState::Unknown(status_error) => {
             eprintln!(
-                "herdr could not determine server state for {} {} after the failed handoff: {status_error}",
+                "{} could not determine server state for {} {} after the failed handoff: {status_error}",
+                crate::EXECUTABLE_NAME,
                 plan.target_noun(),
                 plan.label()
             );
@@ -1858,7 +1864,9 @@ pub(crate) fn update_install_command() -> &'static str {
 pub(crate) fn update_install_instruction(install_command: &str) -> String {
     match install_command {
         HERDR_UPDATE_COMMAND => {
-            "detach, run `herdr update`, then follow its restart guidance".to_string()
+            format!(
+                "detach, run `{HERDR_UPDATE_COMMAND}`, then follow its restart guidance"
+            )
         }
         HOMEBREW_UPDATE_COMMAND => {
             "detach, run `brew update && brew upgrade herdr`, then restart this Herdr session when ready".to_string()
@@ -2069,6 +2077,13 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
 
 /// Manual self-update command (`herdr update`).
 pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
+    if !crate::brand::UPSTREAM_UPDATES_ENABLED {
+        return Err(format!(
+            "self-update is disabled in {}: it would install upstream Herdr over this build. \
+Rebuild from source to update.",
+            crate::brand::PRODUCT_NAME
+        ));
+    }
     let channel = UpdateChannel::configured();
 
     if is_homebrew_managed_install() {
@@ -2711,7 +2726,7 @@ mod tests {
     fn update_install_instruction_distinguishes_install_from_restart() {
         assert_eq!(
             update_install_instruction(HERDR_UPDATE_COMMAND),
-            "detach, run `herdr update`, then follow its restart guidance"
+            format!("detach, run `{HERDR_UPDATE_COMMAND}`, then follow its restart guidance")
         );
         assert_eq!(
             update_install_instruction(HOMEBREW_UPDATE_COMMAND),
@@ -2879,8 +2894,14 @@ mod tests {
     fn plain_update_targets_all_running_sessions() {
         let _guard = env_lock().lock().unwrap();
         let config_home = set_test_config_home("all-sessions");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
 
         let default_socket = crate::session::api_socket_path_for(None);
@@ -2910,7 +2931,10 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let config_home = set_test_config_home("explicit-session");
         std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-herdr.sock");
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
         let args = vec![
             "herdr".to_string(),
@@ -2923,8 +2947,14 @@ mod tests {
         let targets = running_update_targets().unwrap();
 
         let expected_socket = crate::session::api_socket_path_for(Some("work"));
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         std::env::remove_var("XDG_CONFIG_HOME");
         crate::session::clear_explicit_session_for_test();
         let _ = fs::remove_dir_all(config_home);
@@ -2944,8 +2974,14 @@ mod tests {
 
         let targets = running_update_targets().unwrap();
 
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
 
         assert_eq!(targets.len(), 1);
@@ -2963,8 +2999,14 @@ mod tests {
     fn plain_update_errors_when_named_session_has_client_socket_without_status_api() {
         let _guard = env_lock().lock().unwrap();
         let config_home = set_test_config_home("client-only-session");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
 
         let work_client_socket = crate::session::client_socket_path_for(Some("work"));
@@ -2983,7 +3025,7 @@ mod tests {
             "unexpected error: {err}"
         );
         assert!(
-            err.contains("herdr session stop work"),
+            err.contains(&format!("{} session stop work", crate::EXECUTABLE_NAME)),
             "unexpected error: {err}"
         );
     }
@@ -3080,7 +3122,10 @@ mod tests {
         let complete = prompt_to_complete_plain_update(&decisions, &release).unwrap();
 
         assert!(!complete);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
     }
 

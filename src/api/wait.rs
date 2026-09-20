@@ -19,6 +19,100 @@ use crate::ipc::LocalStream;
 
 const AGENT_PROMPT_EFFECT_TIMEOUT_MS: u64 = 5_000;
 
+pub(super) fn wait_for_agent_message(
+    request_id: String,
+    params: crate::api::schema::AgentMessageWaitParams,
+    stream: &mut LocalStream,
+    api_tx: &ApiRequestSender,
+    running: &Arc<AtomicBool>,
+) -> std::io::Result<Option<String>> {
+    use crate::api::schema::{
+        AgentMessageBox, AgentMessageListParams, AgentMessageTargetParams, AgentMessageWaitSelector,
+    };
+
+    let deadline = params
+        .timeout_ms
+        .map(|ms| std::time::Instant::now() + std::time::Duration::from_millis(ms));
+    loop {
+        if should_stop_connection(stream, running)? {
+            return Ok(None);
+        }
+
+        let probe = match &params.selector {
+            AgentMessageWaitSelector::Inbox { after_sequence } => Request {
+                id: format!("{request_id}:message"),
+                method: Method::AgentMessageList(AgentMessageListParams {
+                    caller_pane_id: params.caller_pane_id.clone(),
+                    mailbox: AgentMessageBox::Inbox,
+                    after_sequence: *after_sequence,
+                    limit: Some(1),
+                    unacknowledged_only: false,
+                }),
+            },
+            AgentMessageWaitSelector::State { message_id, .. } => Request {
+                id: format!("{request_id}:message"),
+                method: Method::AgentMessageGet(AgentMessageTargetParams {
+                    caller_pane_id: params.caller_pane_id.clone(),
+                    message_id: message_id.clone(),
+                }),
+            },
+        };
+        let response = dispatch_to_app_with_timeout(probe, api_tx, Some(APP_RESPONSE_TIMEOUT));
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&response) else {
+            return Ok(Some(response));
+        };
+        if value.get("error").is_some() {
+            value["id"] = serde_json::Value::String(request_id.clone());
+            return serde_json::to_string(&value)
+                .map(Some)
+                .map_err(std::io::Error::other);
+        }
+
+        let message = match &params.selector {
+            AgentMessageWaitSelector::Inbox { .. } => value["result"]["messages"]
+                .as_array()
+                .and_then(|messages| messages.first())
+                .cloned(),
+            AgentMessageWaitSelector::State { until, .. } => {
+                value["result"]["message"].as_object().and_then(|_| {
+                    let state = serde_json::from_value::<crate::api::schema::AgentMessageState>(
+                        value["result"]["message"]["state"].clone(),
+                    )
+                    .ok()?;
+                    let matches = if until.is_empty() {
+                        state != crate::api::schema::AgentMessageState::Pending
+                    } else {
+                        until.contains(&state)
+                    };
+                    matches.then(|| value["result"]["message"].clone())
+                })
+            }
+        };
+        if let Some(message) = message {
+            let message = serde_json::from_value(message).map_err(std::io::Error::other)?;
+            return serde_json::to_string(&SuccessResponse {
+                id: request_id,
+                result: ResponseResult::AgentMessage { message },
+            })
+            .map(Some)
+            .map_err(std::io::Error::other);
+        }
+
+        if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+            return serde_json::to_string(&ErrorResponse {
+                id: request_id,
+                error: ErrorBody {
+                    code: "timeout".into(),
+                    message: "timed out waiting for an agent message".into(),
+                },
+            })
+            .map(Some)
+            .map_err(std::io::Error::other);
+        }
+        std::thread::sleep(CONNECTION_POLL_INTERVAL);
+    }
+}
+
 pub(super) fn wait_for_output(
     request_id: String,
     params: crate::api::schema::PaneWaitForOutputParams,

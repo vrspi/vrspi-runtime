@@ -83,7 +83,7 @@ rustPlatform.buildRustPackage {
     description = "Terminal workspace manager for AI coding agents";
     homepage = "https://herdr.dev";
     license = lib.licenses.asl20;
-    mainProgram = "herdr";
+    mainProgram = "vrspi";
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };
 }

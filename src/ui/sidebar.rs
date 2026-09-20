@@ -563,6 +563,92 @@ pub(crate) fn agent_entry_height_in_body(
         .min(body_height)
 }
 
+/// One row group in the expanded agent list: a workspace header, or an agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentPanelItem {
+    /// Workspace header. `count` is how many of its agents are listed.
+    Group {
+        ws_idx: usize,
+        count: usize,
+        collapsed: bool,
+    },
+    /// Index into the agent entries.
+    Agent(usize),
+}
+
+/// Lays the agent entries out under their workspaces.
+///
+/// Grouped mode puts a clickable header above each workspace's agents and
+/// omits the agents of a collapsed one. Priority mode, and a filtered view,
+/// stay a flat list: ranking by urgency across workspaces, or showing only the
+/// matches, is the whole point of those views.
+pub(crate) fn agent_panel_items(
+    app: &AppState,
+    entries: &[AgentPanelEntry],
+) -> Vec<AgentPanelItem> {
+    if app.agent_panel_sort != AgentPanelSort::Spaces || app.agent_view_override.is_some() {
+        return (0..entries.len()).map(AgentPanelItem::Agent).collect();
+    }
+    // Keep workspaces in the order their first agent appears, and each
+    // workspace's agents in their existing order.
+    let mut order: Vec<usize> = Vec::new();
+    for entry in entries {
+        if !order.contains(&entry.ws_idx) {
+            order.push(entry.ws_idx);
+        }
+    }
+    // A header over the only workspace groups nothing and costs a row.
+    if order.len() < 2 {
+        return (0..entries.len()).map(AgentPanelItem::Agent).collect();
+    }
+    let mut items = Vec::with_capacity(entries.len() + order.len());
+    for ws_idx in order {
+        let members: Vec<usize> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.ws_idx == ws_idx)
+            .map(|(index, _)| index)
+            .collect();
+        let collapsed = app
+            .workspaces
+            .get(ws_idx)
+            .is_some_and(|workspace| app.collapsed_agent_groups.contains(&workspace.id));
+        items.push(AgentPanelItem::Group {
+            ws_idx,
+            count: members.len(),
+            collapsed,
+        });
+        if !collapsed {
+            items.extend(members.into_iter().map(AgentPanelItem::Agent));
+        }
+    }
+    items
+}
+
+/// Rows an item takes inside the agent body.
+pub(crate) fn agent_item_height_in_body(
+    app: &AppState,
+    entries: &[AgentPanelEntry],
+    item: AgentPanelItem,
+    body_height: u16,
+) -> u16 {
+    match item {
+        AgentPanelItem::Group { .. } => 1.min(body_height),
+        AgentPanelItem::Agent(index) => entries.get(index).map_or(0, |entry| {
+            agent_entry_height_in_body(app, entry, body_height)
+        }),
+    }
+}
+
+/// Spacing after an item. A header sits directly on its agents; the gap
+/// separates one agent, or one group, from the next.
+pub(crate) fn agent_item_gap(app: &AppState, items: &[AgentPanelItem], index: usize) -> u16 {
+    match items.get(index) {
+        Some(AgentPanelItem::Agent(_)) => agent_entry_gap(app, index, items.len()),
+        _ => 0,
+    }
+}
+
 pub(crate) fn agent_entry_gap(app: &AppState, entry_idx: usize, entry_count: usize) -> u16 {
     if entry_idx + 1 < entry_count {
         app.sidebar_agents.row_gap
@@ -580,15 +666,16 @@ fn agent_panel_visible_count_from(app: &AppState, area: Rect, scroll: usize) -> 
     let mut used_rows = 0u16;
     let mut visible = 0usize;
     let entries = agent_panel_entries(app);
-    for (index, entry) in entries.iter().enumerate().skip(scroll) {
-        let height = agent_entry_height_in_body(app, entry, body.height);
+    let items = agent_panel_items(app, &entries);
+    for (index, item) in items.iter().enumerate().skip(scroll) {
+        let height = agent_item_height_in_body(app, &entries, *item, body.height);
         if used_rows.saturating_add(height) > body.height {
             break;
         }
         used_rows = used_rows.saturating_add(height);
         visible += 1;
         used_rows = used_rows
-            .saturating_add(agent_entry_gap(app, index, entries.len()))
+            .saturating_add(agent_item_gap(app, &items, index))
             .min(body.height);
     }
     visible
@@ -597,18 +684,20 @@ fn agent_panel_visible_count_from(app: &AppState, area: Rect, scroll: usize) -> 
 fn agent_panel_bottom_start(app: &AppState, area: Rect) -> usize {
     let body = agent_panel_body_rect(area, false);
     let entries = agent_panel_entries(app);
+    let items = agent_panel_items(app, &entries);
     let mut used_rows = 0u16;
-    let mut start = entries.len();
-    for (index, entry) in entries.iter().enumerate().rev() {
-        let gap = agent_entry_gap(app, index, entries.len());
-        let needed = agent_entry_height_in_body(app, entry, body.height).saturating_add(gap);
+    let mut start = items.len();
+    for (index, item) in items.iter().enumerate().rev() {
+        let gap = agent_item_gap(app, &items, index);
+        let needed =
+            agent_item_height_in_body(app, &entries, *item, body.height).saturating_add(gap);
         if used_rows.saturating_add(needed) > body.height {
             break;
         }
         used_rows = used_rows.saturating_add(needed);
         start = index;
     }
-    start.min(entries.len().saturating_sub(1))
+    start.min(items.len().saturating_sub(1))
 }
 
 pub(crate) fn agent_panel_scroll_for_target(
@@ -617,6 +706,21 @@ pub(crate) fn agent_panel_scroll_for_target(
     current_scroll: usize,
     target: usize,
 ) -> usize {
+    // `target` names an agent entry; scrolling works in rows of the laid-out
+    // list, where headers sit between agents. An agent folded inside a
+    // collapsed group is represented by that group's header.
+    let entries = agent_panel_entries(app);
+    let items = agent_panel_items(app, &entries);
+    let target = items
+        .iter()
+        .position(|item| *item == AgentPanelItem::Agent(target))
+        .or_else(|| {
+            let ws_idx = entries.get(target)?.ws_idx;
+            items.iter().position(
+                |item| matches!(item, AgentPanelItem::Group { ws_idx: group, .. } if *group == ws_idx),
+            )
+        })
+        .unwrap_or(target);
     let max_scroll = agent_panel_bottom_start(app, area);
     if target < current_scroll {
         return target.min(max_scroll);
@@ -1232,8 +1336,16 @@ fn render_workspace_list(
     if area.height > 0 {
         frame.render_widget(
             Paragraph::new(Line::from(vec![Span::styled(
-                " spaces",
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+                if app.theme_name.eq_ignore_ascii_case("vrspi") {
+                    " 01 / WORKSPACES"
+                } else {
+                    " WORKSPACE"
+                },
+                Style::default().fg(if app.theme_name.eq_ignore_ascii_case("vrspi") {
+                    p.subtext0
+                } else {
+                    p.overlay0
+                }),
             )])),
             Rect::new(area.x, area.y, area.width, 1),
         );
@@ -1275,7 +1387,13 @@ fn render_workspace_list(
         }
 
         let name_style = if selected || is_active || is_dragged {
-            Style::default().fg(p.text).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(if app.theme_name.eq_ignore_ascii_case("vrspi") {
+                    p.accent
+                } else {
+                    p.text
+                })
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(p.subtext0)
         };
@@ -1348,7 +1466,18 @@ fn render_workspace_list(
                     8
                 }
             } else if row_index == 0 {
-                spans.push(Span::raw(" "));
+                spans.push(Span::styled(
+                    if highlighted && app.theme_name.eq_ignore_ascii_case("vrspi") {
+                        "▎"
+                    } else {
+                        " "
+                    },
+                    if highlighted && app.theme_name.eq_ignore_ascii_case("vrspi") {
+                        Style::default().fg(p.accent)
+                    } else {
+                        Style::default()
+                    },
+                ));
                 1
             } else {
                 spans.push(Span::raw("   "));
@@ -1406,7 +1535,7 @@ fn render_workspace_list(
     if app.mouse_capture && list_bottom > area.y {
         let new_rect = app.sidebar_new_button_rect();
         frame.render_widget(
-            Paragraph::new(Span::styled(" new", Style::default().fg(p.overlay0))),
+            Paragraph::new(Span::styled(" +new", Style::default().fg(p.accent))),
             new_rect,
         );
 
@@ -1449,8 +1578,16 @@ fn render_agent_detail(
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            " agents",
-            Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            if app.theme_name.eq_ignore_ascii_case("vrspi") {
+                " 02 / AGENTS"
+            } else {
+                " COLLABORATION"
+            },
+            Style::default().fg(if app.theme_name.eq_ignore_ascii_case("vrspi") {
+                p.subtext0
+            } else {
+                p.overlay0
+            }),
         )])),
         Rect::new(area.x, area.y + 1, area.width, 1),
     );
@@ -1474,6 +1611,15 @@ fn render_agent_detail(
     }
 
     let details = agent_panel_entries_from(app, terminal_runtimes);
+    if app.mouse_capture {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                " ⇄ Agent lobby",
+                Style::default().fg(p.subtext0),
+            )),
+            app.sidebar_lobby_button_rect(),
+        );
+    }
     let metrics = agent_panel_scroll_metrics(app, area);
     let scrollbar_rect = agent_panel_scrollbar_rect(app, area);
     let body = agent_panel_body_rect(area, should_show_scrollbar(metrics));
@@ -1492,7 +1638,26 @@ fn render_agent_detail(
     let scroll = app.agent_panel_scroll.min(metrics.max_offset_from_bottom);
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
-    for (index, detail) in details.iter().enumerate().skip(scroll) {
+    let items = agent_panel_items(app, &details);
+    for (index, item) in items.iter().enumerate().skip(scroll) {
+        let detail = match *item {
+            AgentPanelItem::Group {
+                ws_idx,
+                count,
+                collapsed,
+            } => {
+                if row_y >= body_bottom {
+                    break;
+                }
+                render_agent_group_header(app, frame, ws_idx, count, collapsed, body, row_y);
+                row_y = row_y.saturating_add(1).min(body_bottom);
+                continue;
+            }
+            AgentPanelItem::Agent(entry) => match details.get(entry) {
+                Some(detail) => detail,
+                None => continue,
+            },
+        };
         let label_color = state_label_color(detail.state, detail.seen, p);
         let rows = resolved_agent_rows(app, detail);
         let height = (rows.len().max(1) as u16).min(body.height);
@@ -1539,13 +1704,46 @@ fn render_agent_detail(
         }
         row_y = row_y
             .saturating_add(height)
-            .saturating_add(agent_entry_gap(app, index, details.len()))
+            .saturating_add(agent_item_gap(app, &items, index))
             .min(body_bottom);
     }
 
     if let Some(track) = scrollbar_rect {
         render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
     }
+}
+
+/// A workspace header in the grouped agent list.
+fn render_agent_group_header(
+    app: &AppState,
+    frame: &mut Frame,
+    ws_idx: usize,
+    count: usize,
+    collapsed: bool,
+    body: Rect,
+    row_y: u16,
+) {
+    let p = &app.palette;
+    let name = app
+        .workspaces
+        .get(ws_idx)
+        .map(|workspace| workspace.display_name_from_terminals(&app.terminals))
+        .unwrap_or_default();
+    let marker = if collapsed { "▸" } else { "▾" };
+    let count_label = format!(" {count}");
+    let name_width =
+        (body.width as usize).saturating_sub(3 + display_width_u16(&count_label) as usize);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(format!(" {marker} "), Style::default().fg(p.accent)),
+            Span::styled(
+                format!("{:<name_width$}", truncate_end(&name, name_width)),
+                Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(count_label, Style::default().fg(p.overlay0)),
+        ])),
+        Rect::new(body.x, row_y, body.width, 1),
+    );
 }
 
 pub(crate) fn collapsed_sidebar_toggle_rect(area: Rect) -> Rect {
@@ -1979,19 +2177,78 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         app.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent]];
         assert_eq!(app.sidebar_agents.row_gap, 0);
 
-        let area = Rect::new(0, 0, 20, 5);
+        // Agents in two workspaces are grouped under their workspace headers;
+        // with no gap, every row is used: header, agent, header, agent.
+        let area = Rect::new(0, 0, 20, 7);
         let metrics = agent_panel_scroll_metrics(&app, area);
         let body = agent_panel_body_rect(area, false);
-        let mut terminal = Terminal::new(TestBackend::new(20, 5)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(20, 7)).unwrap();
         terminal
             .draw(|frame| render_agent_detail(&app, &TerminalRuntimeRegistry::new(), frame, area))
             .unwrap();
         let buffer = terminal.backend().buffer();
 
-        assert_eq!(metrics.viewport_rows, 2);
+        assert_eq!(metrics.viewport_rows, 4);
         assert_eq!(metrics.max_offset_from_bottom, 0);
-        assert_eq!(row_text(buffer, body.y, body.width), " pi");
-        assert_eq!(row_text(buffer, body.y + 1, body.width), " claude");
+        assert!(row_text(buffer, body.y, body.width).contains("one"));
+        assert_eq!(row_text(buffer, body.y + 1, body.width), " pi");
+        assert!(row_text(buffer, body.y + 2, body.width).contains("two"));
+        assert_eq!(row_text(buffer, body.y + 3, body.width), " claude");
+    }
+
+    #[test]
+    fn a_collapsed_workspace_group_hides_its_agents() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.ensure_test_terminals();
+        for (workspace, agent) in app.workspaces.iter().zip([Agent::Pi, Agent::Claude]) {
+            let pane_id = workspace.tabs[0].root_pane;
+            let terminal_id = workspace.tabs[0].panes[&pane_id]
+                .attached_terminal_id
+                .clone();
+            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(agent);
+        }
+        app.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent]];
+        let one = app.workspaces[0].id.clone();
+        app.collapsed_agent_groups.insert(one);
+
+        let entries = agent_panel_entries(&app);
+        let items = agent_panel_items(&app, &entries);
+        assert_eq!(
+            items,
+            vec![
+                AgentPanelItem::Group {
+                    ws_idx: 0,
+                    count: 1,
+                    collapsed: true
+                },
+                AgentPanelItem::Group {
+                    ws_idx: 1,
+                    count: 1,
+                    collapsed: false
+                },
+                AgentPanelItem::Agent(1),
+            ],
+            "the folded workspace keeps its header and count, but not its agents"
+        );
+
+        let area = Rect::new(0, 0, 20, 7);
+        let body = agent_panel_body_rect(area, false);
+        let mut terminal = Terminal::new(TestBackend::new(20, 7)).unwrap();
+        terminal
+            .draw(|frame| render_agent_detail(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert!(row_text(buffer, body.y, body.width).contains("▸"));
+        assert!(row_text(buffer, body.y + 1, body.width).contains("▾"));
+        assert_eq!(row_text(buffer, body.y + 2, body.width), " claude");
+
+        // A single workspace needs no header: it would group nothing.
+        app.workspaces.truncate(1);
+        let entries = agent_panel_entries(&app);
+        assert!(agent_panel_items(&app, &entries)
+            .iter()
+            .all(|item| matches!(item, AgentPanelItem::Agent(_))));
     }
 
     #[test]
@@ -2108,9 +2365,16 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         ];
         let area = Rect::new(0, 0, 20, 6);
 
+        // Three workspaces, so each agent sits under its workspace header:
+        // header(1) tall-agent(3) header(1) agent(1) header(1) agent(1) in a
+        // three-row body. The last three items pack the bottom.
         let metrics = agent_panel_scroll_metrics(&app, area);
-        assert_eq!(metrics.max_offset_from_bottom, 1);
-        assert_eq!(agent_panel_scroll_for_target(&app, area, 0, 2), 1);
+        let entries = agent_panel_entries(&app);
+        let items = agent_panel_items(&app, &entries);
+        assert_eq!(items.len(), 6, "a header per workspace plus its agent");
+        assert_eq!(metrics.max_offset_from_bottom, 3);
+        // Revealing the last agent scrolls until it, not just its header, fits.
+        assert_eq!(agent_panel_scroll_for_target(&app, area, 0, 2), 3);
     }
 
     #[test]

@@ -69,6 +69,24 @@ herdr agent rename w1:p2 reviewer
 | 向智能体交互界面发送按键 | `agent send-keys` |
 | 等待智能体生命周期状态 | `agent wait` |
 
+## 智能体间消息
+
+受管智能体会继承 `HERDR_ENV=1`、`HERDR_PANE_ID` 和本地 socket。`herdr agent self` 把该环境解析为当前智能体及其不可变的协作 `instance_id`。窗格移动或重命名不会改变 instance;智能体退出或被替换时会生成新 instance。
+
+需要协作而又不向另一智能体的终端 UI 注入输入时,使用保留式 mailbox:
+
+```bash
+herdr agent message send reviewer "请审查 auth.rs 并 acknowledge 此消息"
+herdr agent message inbox --unacked
+herdr agent message ack msg_1
+herdr agent message wait --after 12 --timeout 120000
+herdr agent message wait msg_1 --until acknowledged --timeout 120000
+herdr agent lobby connect reviewer
+herdr agent lobby list
+```
+
+读取收件消息会标记为 `observed`;只有收件人可以 `ack`。发件人只能在自动注入或 acknowledge 前 revoke。`agent lobby connect` 把两个不可变的智能体 instance 加入 lobby,并启用 idle 时自动投递。TUI 中可右键智能体窗格选择 **Connect workspace agents**,再从全局菜单的 **agent lobbies** 查看 lobby 及 active/offline 成员。**company room** 是由 host 拥有、绑定到单个 workspace 的团队。使用 `vrspi room create` 创建,`room member add` 添加席位,`room member bind` 绑定运行中的智能体。发帖只存储一条事件,并**仅向被明确指名的成员**投递:写 `@Codex` 只会唤醒 Codex,其他成员之后可以阅读而不触发任何模型调用。代码块、引用与反引号内的提及一律无效。在全局菜单选择 **company rooms** 打开房间浏览器:`↑`/`↓` 选择房间,`tab` 或 `1`/`2`/`3` 切换 conversation / members / memory,`u`/`d` 滚动,`p` 发帖,`esc` 关闭。会话标签页会显示每条发帖实际唤醒了谁,未唤醒任何人的发帖会明确标注为 room note。members 标签页显示哪些席位已绑定运行中的智能体,未绑定的席位不会收到投递。每个目标都有激活额度(默认 12),同一链路的回复共享该额度,只有 host 可以扩展。room memory 是可搜索、带修订号的知识库,搜索最多返回 5 条摘要;智能体写入的记录在 host 接受前始终为 `proposed`。在 **agent lobbies** 中,`J`/`K` 移动会话光标,`f` 转发该条及其后的全部消息,`F` 转发整个会话。你输入的提示词会追加在 `--- forwarded with this request ---` 分隔线之后,便于接收方区分转发内容与你的指令。超过 16 KiB 上限时会从最旧的消息开始裁剪,并在发送前显示被裁剪的条数。lobby 分为按 workspace 划分的 **space** 与两个智能体之间的 **direct** 两类;`x` 退出,`D` 删除,重命名/移除成员/删除仅限 lobby 所有者。接收方 incarnation 已消失的消息显示为 `orphaned` 而非 `delivered`。聚焦的智能体窗格上边框会显示 **⇄ call agent** 按钮,右键菜单也提供 **Call another agent**:选择目标并写好提示词后发送,连接 lobby 与投递会一次完成。`↑` `↓` 选择,`↵` 进入下一步并发送,`alt+↵` 换行,`^b` 返回,`esc` 关闭。目标处于 idle 时立即投递,处于 working 时会在其空闲后自动投递。自动投递每个 idle cycle 只发送一条消息,并使用经过 JSON 转义的 runtime envelope。
+
 `agent prompt` 会先发送文本,短暂延迟后再发送编码后的 Enter,并遵循终端当前的 bracketed paste 模式。即使智能体正在 working 也可以提交。如果智能体已经是 `blocked`,它不会发送任何终端输入,而是返回 `agent_blocked`;请先检查对话框,再用 `agent send-keys` 明确作出响应。使用 `agent send-keys` 进行 `esc`、`up`、`enter`、`ctrl+c` 等交互;`escape` 也是 `esc` 的别名。只有在明确需要原始终端控制时才使用窗格输入命令。
 
 窗格输入直接指定终端,不关心当前进程。智能体输入会解析实时智能体;如果该智能体已不再控制此窗格,操作会被拒绝。

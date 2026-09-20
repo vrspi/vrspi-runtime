@@ -21,7 +21,7 @@ pub(super) fn render_panel_shell(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color))
-        .border_set(ratatui::symbols::border::PLAIN)
+        .border_set(ratatui::symbols::border::ROUNDED)
         .style(Style::default().bg(bg));
     let inner = block.inner(area);
     frame.render_widget(Clear, area);
@@ -62,9 +62,12 @@ pub(super) fn render_modal_shell(
 pub(super) fn render_modal_header(frame: &mut Frame, area: Rect, title: &str, p: &Palette) {
     let line = Line::from(vec![Span::styled(
         title,
-        Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+        Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
     )]);
-    frame.render_widget(Paragraph::new(line), area);
+    frame.render_widget(
+        Paragraph::new(line).style(Style::default().bg(p.surface0)),
+        area,
+    );
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -130,6 +133,27 @@ pub(crate) fn modal_stack_areas(
         footer,
         actions,
     }
+}
+
+/// First visible row of a list that must keep `selected` in view.
+///
+/// Shared so a list's render and its mouse hit-testing can never disagree about
+/// which row is where.
+pub(crate) fn follow_selection_scroll(
+    selected: usize,
+    scroll: usize,
+    visible_rows: usize,
+) -> usize {
+    if visible_rows == 0 {
+        return 0;
+    }
+    if selected < scroll {
+        return selected;
+    }
+    if selected >= scroll + visible_rows {
+        return selected + 1 - visible_rows;
+    }
+    scroll
 }
 
 pub(crate) fn action_button_text(hint: Option<&str>, label: &str) -> String {

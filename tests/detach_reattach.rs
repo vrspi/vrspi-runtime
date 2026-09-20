@@ -118,7 +118,9 @@ fn spawn_server_with_config(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
@@ -698,7 +700,9 @@ fn pane_created_without_client_uses_configured_headless_size() {
         Duration::from_secs(5),
     );
 
-    assert_eq!(size, (41, 132));
+    // Studio chrome reserves two masthead rows and one footer row, so a
+    // 41-row headless viewport gives the pane 38 rows.
+    assert_eq!(size, (38, 132));
 
     cleanup_spawned_herdr(spawned, base);
 }
@@ -740,7 +744,7 @@ fn pane_created_after_detach_uses_configured_headless_size() {
         "ATTACHED_SIZE",
         Duration::from_secs(5),
     );
-    assert_eq!(attached_size, (50, 160));
+    assert_eq!(attached_size, (47, 160));
 
     send_detach(&mut stream).expect("send detach");
     assert!(
@@ -767,7 +771,7 @@ fn pane_created_after_detach_uses_configured_headless_size() {
         Duration::from_secs(5),
     );
 
-    assert_eq!(headless_size, (41, 132));
+    assert_eq!(headless_size, (38, 132));
     assert_eq!(preserved_size, attached_size);
 
     cleanup_spawned_herdr(spawned, base);

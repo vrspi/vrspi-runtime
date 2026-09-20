@@ -237,11 +237,35 @@ On Windows, custom command strings use `cmd.exe /d /c`, so environment variables
 
 ## Theme
 
+Vrspi defaults to the `vrspi` Obsidian Studio theme: warm graphite surfaces,
+ivory text, copper highlights, and separate colors for agent status.
+Desktop layouts reserve two rows for the brand/mode masthead and one row for
+workspace context and pane count, outside the terminals. Windows below 40 columns
+or 12 rows and mobile layouts omit this chrome. Other built-in
+themes and custom color overrides remain available; existing explicitly selected
+themes are not replaced.
+
+The runtime uses shared pane dividers and shows detected agent labels by default.
+Pane title strips show live working, idle, blocked, or unknown state. The focused
+agent's **call agent** control opens the existing message composer. Headers use
+the reserved top border only: borderless and single-pane views keep their terminal
+content unobstructed. The sidebar **Agent lobby** shortcut opens the existing lobby
+browser; it does not automatically connect agents or send messages.
+
+The tab bar is hidden for single-tab workspaces by default. To keep it visible or
+restore separated pane borders:
+
+```toml
+[ui]
+hide_tab_bar_when_single_tab = false
+pane_gaps = true
+```
+
 Choose a built-in theme:
 
 ```toml
 [theme]
-name = "catppuccin"
+name = "vrspi"
 ```
 
 Search `theme.name` in the [Config reference](/docs/config-reference/) for every built-in theme. Use `terminal` when you want Herdr UI colors to follow your host terminal's ANSI palette.

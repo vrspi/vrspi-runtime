@@ -883,11 +883,11 @@ pub struct UiConfig {
     pub pane_outer_borders: bool,
     /// Draw interactive scrollbars beside terminal panes. Default: true.
     pub pane_scrollbars: bool,
-    /// Keep split panes visually separated instead of sharing divider borders. Default: true.
+    /// Keep split panes visually separated instead of sharing divider borders. Default: false.
     pub pane_gaps: bool,
-    /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
+    /// Show agent labels in split pane borders when no manual pane label is set. Default: true.
     pub show_agent_labels_on_pane_borders: bool,
-    /// Hide the tab row when the workspace has one tab. Default: false.
+    /// Hide the tab row when the workspace has one tab. Default: true.
     pub hide_tab_bar_when_single_tab: bool,
     /// Desktop tab row placement. Default: top.
     pub tab_bar_position: TabBarPositionConfig,
@@ -1119,9 +1119,9 @@ impl Default for UiConfig {
             pane_borders: true,
             pane_outer_borders: true,
             pane_scrollbars: true,
-            pane_gaps: true,
-            show_agent_labels_on_pane_borders: false,
-            hide_tab_bar_when_single_tab: false,
+            pane_gaps: false,
+            show_agent_labels_on_pane_borders: true,
+            hide_tab_bar_when_single_tab: true,
             tab_bar_position: TabBarPositionConfig::Top,
             tab_bar_right: Vec::new(),
             tab_bar_right_separator: " ".into(),
@@ -1396,9 +1396,9 @@ status_indicators = "symbols"
         assert!(default_config.ui.pane_borders);
         assert!(default_config.ui.pane_outer_borders);
         assert!(default_config.ui.pane_scrollbars);
-        assert!(default_config.ui.pane_gaps);
-        assert!(!default_config.ui.show_agent_labels_on_pane_borders);
-        assert!(!default_config.ui.hide_tab_bar_when_single_tab);
+        assert!(!default_config.ui.pane_gaps);
+        assert!(default_config.ui.show_agent_labels_on_pane_borders);
+        assert!(default_config.ui.hide_tab_bar_when_single_tab);
         assert_eq!(
             default_config.ui.tab_bar_position,
             TabBarPositionConfig::Top

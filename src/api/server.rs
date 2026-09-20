@@ -14,7 +14,9 @@ use crate::api::schema::{
     ErrorBody, ErrorResponse, Method, Request, ResponseResult, ServerCapabilities, SuccessResponse,
 };
 use crate::api::subscriptions::ActiveSubscription;
-use crate::api::wait::{prompt_agent, wait_for_agent, wait_for_event, wait_for_output};
+use crate::api::wait::{
+    prompt_agent, wait_for_agent, wait_for_agent_message, wait_for_event, wait_for_output,
+};
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
 use crate::ipc::{
     bind_local_listener, is_connection_closed_error, local_stream_peer_closed,
@@ -273,6 +275,11 @@ fn handle_connection_with_stop(
             )?;
             finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
         }
+        Method::AgentMessageWait(params) => {
+            let response =
+                wait_for_agent_message(request_id.clone(), params, &mut stream, api_tx, running)?;
+            finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
+        }
         Method::PaneWaitForOutput(params) => {
             let response =
                 wait_for_output(request_id.clone(), params, &mut stream, api_tx, running)?;
@@ -423,6 +430,37 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::AgentStart(_) => "agent.start",
         Method::AgentPrompt(_) => "agent.prompt",
         Method::AgentWait(_) => "agent.wait",
+        Method::AgentSelf(_) => "agent.self",
+        Method::AgentMessageSend(_) => "agent.message.send",
+        Method::AgentMessageList(_) => "agent.message.list",
+        Method::AgentMessageGet(_) => "agent.message.get",
+        Method::AgentMessageAck(_) => "agent.message.ack",
+        Method::AgentMessageRevoke(_) => "agent.message.revoke",
+        Method::AgentMessageWait(_) => "agent.message.wait",
+        Method::AgentLobbyConnect(_) => "agent.lobby.connect",
+        Method::AgentLobbyList(_) => "agent.lobby.list",
+        Method::AgentLobbyLeave(_) => "agent.lobby.leave",
+        Method::AgentLobbyRemove(_) => "agent.lobby.remove",
+        Method::AgentLobbyDelete(_) => "agent.lobby.delete",
+        Method::AgentLobbyRename(_) => "agent.lobby.rename",
+        Method::RoomCreate(_) => "room.create",
+        Method::RoomList(_) => "room.list",
+        Method::RoomGet(_) => "room.get",
+        Method::RoomSetLifecycle(_) => "room.set_lifecycle",
+        Method::RoomMemberAdd(_) => "room.member.add",
+        Method::RoomMemberRemove(_) => "room.member.remove",
+        Method::RoomMemberBind(_) => "room.member.bind",
+        Method::RoomPost(_) => "room.post",
+        Method::RoomAck(_) => "room.ack",
+        Method::RoomEvents(_) => "room.events",
+        Method::RoomMemoryPut(_) => "room.memory.put",
+        Method::RoomMemorySearch(_) => "room.memory.search",
+        Method::RoomMemoryGet(_) => "room.memory.get",
+        Method::RoomMemoryAccept(_) => "room.memory.accept",
+        Method::RoomMemoryDelete(_) => "room.memory.delete",
+        Method::RoomDelete(_) => "room.delete",
+        Method::RoomMemberGrant(_) => "room.member.grant",
+        Method::RoomAllowanceExtend(_) => "room.allowance.extend",
         Method::PaneSplit(_) => "pane.split",
         Method::PaneSwap(_) => "pane.swap",
         Method::PaneMove(_) => "pane.move",
@@ -999,11 +1037,17 @@ mod tests {
     fn socket_path_prefers_explicit_env_override() {
         let _guard = env_lock().lock().unwrap();
         let unique = format!("/tmp/herdr-test-{}.sock", std::process::id());
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
         std::env::set_var(crate::api::SOCKET_PATH_ENV_VAR, &unique);
         assert_eq!(socket_path(), PathBuf::from(&unique));
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
     }
 
     #[test]
@@ -1011,8 +1055,14 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let config_home = unique_test_path("socket-default-config-home");
         let runtime_dir = unique_test_path("socket-default-runtime");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
         std::env::set_var("XDG_CONFIG_HOME", &config_home);
         std::env::set_var("XDG_RUNTIME_DIR", &runtime_dir);
@@ -1030,7 +1080,10 @@ mod tests {
     fn socket_path_uses_named_session_dir() {
         let _guard = env_lock().lock().unwrap();
         let config_home = unique_test_path("socket-named-config-home");
-        std::env::remove_var(crate::api::SOCKET_PATH_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::LEGACY_SOCKET_PATH_ENV_VAR,
+        );
         crate::session::clear_explicit_session_for_test();
         std::env::set_var(crate::session::SESSION_ENV_VAR, "work");
         std::env::set_var("XDG_CONFIG_HOME", &config_home);
@@ -1042,7 +1095,10 @@ mod tests {
             .join("herdr.sock");
         assert_eq!(socket_path(), expected);
 
-        std::env::remove_var(crate::session::SESSION_ENV_VAR);
+        crate::brand::remove_env_var(
+            crate::session::SESSION_ENV_VAR,
+            crate::session::LEGACY_SESSION_ENV_VAR,
+        );
         std::env::remove_var("XDG_CONFIG_HOME");
     }
 
@@ -1224,6 +1280,73 @@ mod tests {
             response["result"]["event"]["data"]["agent_status"],
             "blocked"
         );
+        drop(api_tx);
+        responder.join().unwrap();
+    }
+
+    #[test]
+    fn agent_message_wait_returns_the_first_inbound_message() {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
+        let responder = std::thread::spawn(move || {
+            let msg = api_rx.blocking_recv().unwrap();
+            assert!(matches!(msg.request.method, Method::AgentMessageList(_)));
+            let party = |instance_id: &str, pane_id: &str| crate::api::schema::AgentMessageParty {
+                instance_id: instance_id.into(),
+                terminal_id: format!("term_{instance_id}"),
+                name: None,
+                agent: Some("codex".into()),
+                pane_id: pane_id.into(),
+            };
+            msg.respond_to
+                .send(
+                    serde_json::to_string(&SuccessResponse {
+                        id: msg.request.id,
+                        result: ResponseResult::AgentMessageList {
+                            messages: vec![crate::api::schema::AgentMessage {
+                                message_id: "msg_1".into(),
+                                sequence: 1,
+                                sender: party("sender", "w1:p1"),
+                                recipient: party("recipient", "w1:p2"),
+                                body: Some("review".into()),
+                                reply_to: None,
+                                state: crate::api::schema::AgentMessageState::Observed,
+                                created_at_unix_ms: 1,
+                                observed_at_unix_ms: Some(2),
+                                injected_at_unix_ms: None,
+                                acknowledged_at_unix_ms: None,
+                                revoked_at_unix_ms: None,
+                                delivery_uncertain: false,
+                                client_nonce: None,
+                            }],
+                            latest_sequence: 1,
+                            has_more: false,
+                            next_after_sequence: None,
+                        },
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+        });
+
+        let (mut client, server, _path) = local_stream_pair("api-agent-message-wait");
+        client
+            .write_all(br#"{"id":"wait_message","method":"agent.message.wait","params":{"caller_pane_id":"w1:p2","selector":{"type":"inbox","after_sequence":0},"timeout_ms":1000}}"#)
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        handle_connection(
+            server,
+            &api_tx,
+            &EventHub::default(),
+            &Arc::new(AtomicBool::new(true)),
+            None,
+        )
+        .unwrap();
+        let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
+        assert_eq!(response["id"], "wait_message");
+        assert_eq!(response["result"]["type"], "agent_message");
+        assert_eq!(response["result"]["message"]["message_id"], "msg_1");
         drop(api_tx);
         responder.join().unwrap();
     }

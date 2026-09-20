@@ -8,6 +8,9 @@ use portable_pty::CommandBuilder;
 pub(crate) const HERDR_PANE_ID_ENV_VAR: &str = "HERDR_PANE_ID";
 pub(crate) const HERDR_TAB_ID_ENV_VAR: &str = "HERDR_TAB_ID";
 pub(crate) const HERDR_WORKSPACE_ID_ENV_VAR: &str = "HERDR_WORKSPACE_ID";
+pub(crate) const VRSPI_PANE_ID_ENV_VAR: &str = "VRSPI_PANE_ID";
+pub(crate) const VRSPI_TAB_ID_ENV_VAR: &str = "VRSPI_TAB_ID";
+pub(crate) const VRSPI_WORKSPACE_ID_ENV_VAR: &str = "VRSPI_WORKSPACE_ID";
 
 pub(crate) const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 pub(crate) const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
@@ -26,8 +29,13 @@ pub(crate) const GROK_HOME_ENV_VAR: &str = "GROK_HOME";
 pub(crate) const HERMES_HOME_ENV_VAR: &str = "HERMES_HOME";
 
 pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
-    cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
+    let socket_path = crate::api::socket_path();
+    cmd.env(crate::api::SOCKET_PATH_ENV_VAR, &socket_path);
+    cmd.env(crate::api::LEGACY_SOCKET_PATH_ENV_VAR, &socket_path);
+    cmd.env(crate::VRSPI_ENV_VAR, crate::HERDR_ENV_VALUE);
+    cmd.env(crate::HERDR_ENV_VAR, crate::HERDR_ENV_VALUE);
     if let Ok(executable) = std::env::current_exe() {
+        cmd.env("VRSPI_BIN_PATH", &executable);
         cmd.env("HERDR_BIN_PATH", executable);
     }
 }

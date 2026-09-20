@@ -19,8 +19,13 @@ pub(crate) fn init_file_logging(file_name: &str) {
         return;
     };
 
-    let filter =
-        EnvFilter::try_from_env("HERDR_LOG").unwrap_or_else(|_| EnvFilter::new("herdr=info"));
+    // The default directive has to track the crate name: tracing targets come
+    // from `module_path!()`, so hardcoding it silently drops every log line
+    // whenever the binary target is renamed.
+    let filter = crate::brand::env_var("VRSPI_LOG", "HERDR_LOG")
+        .ok()
+        .and_then(|value| EnvFilter::try_new(value).ok())
+        .unwrap_or_else(|| EnvFilter::new(concat!(env!("CARGO_CRATE_NAME"), "=info")));
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -33,7 +38,7 @@ pub(crate) fn init_file_logging(file_name: &str) {
 pub(crate) fn help_log_paths_summary() -> String {
     let dir = crate::session::data_dir();
     format!(
-        "{} (plus herdr-client.log, herdr-server.log)",
+        "{} (plus legacy-compatible herdr-client.log and herdr-server.log)",
         dir.join("herdr.log").display()
     )
 }
@@ -44,7 +49,7 @@ pub(crate) fn startup(role: &'static str) {
         subsystem = role,
         outcome = "started",
         pid = std::process::id(),
-        "herdr starting"
+        "Vrspi starting"
     );
 }
 
@@ -54,7 +59,7 @@ pub(crate) fn shutdown(role: &'static str) {
         subsystem = role,
         outcome = "completed",
         pid = std::process::id(),
-        "herdr exiting"
+        "Vrspi exiting"
     );
 }
 

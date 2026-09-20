@@ -5,8 +5,27 @@ use ratatui::{
     Frame,
 };
 
+mod agent_call;
+mod rooms;
+#[cfg(test)]
+pub(crate) use self::rooms::member_action_rects;
+pub(crate) use self::rooms::{
+    bind_list_scroll, bind_row_at, conversation_event_at, conversation_first_row,
+    conversation_rows, member_action_at, member_row_at, memory_first_row, memory_row_at,
+    memory_rows, record_action_rects, room_chrome, room_layout, room_list_scroll,
+    room_menu_item_at, room_menu_rect, room_row_at, room_tab_at, RoomAction, RoomChrome,
+    RoomLayout, RoomMemberAction, RoomRecordAction, RoomView,
+};
+mod runtime_chrome;
+pub(crate) use self::agent_call::{
+    agent_call_layout, agent_call_row_at, agent_call_scroll, pane_call_button_rect, AgentCallAction,
+};
 mod dialogs;
 mod keybind_help;
+mod lobbies;
+pub(crate) use self::lobbies::{
+    lobby_browser_layout, lobby_list_scroll, lobby_row_at, LobbyBrowserLayout,
+};
 mod menus;
 mod mobile;
 mod navigator;
@@ -22,11 +41,13 @@ mod tabs;
 mod text;
 mod widgets;
 
+use self::agent_call::render_agent_call;
 use self::dialogs::{
     render_confirm_close_overlay, render_new_linked_worktree_overlay,
     render_open_existing_worktree_overlay, render_remove_worktree_overlay, render_rename_overlay,
 };
 use self::keybind_help::render_keybind_help_overlay;
+use self::lobbies::render_lobby_browser;
 use self::menus::{
     render_context_menu, render_copy_mode_overlay, render_global_launcher_menu,
     render_navigate_overlay, render_prefix_overlay, render_resize_overlay,
@@ -47,6 +68,7 @@ pub(crate) use self::release_notes::{
     RELEASE_NOTES_MODAL_SIZE,
 };
 use self::release_notes::{render_product_announcement_overlay, render_release_notes_overlay};
+use self::rooms::render_room_browser;
 pub(crate) use self::scrollbar::{
     pane_scrollbar_rect, release_notes_scrollbar_rect, scrollbar_offset_from_drag_row,
     scrollbar_offset_from_row, scrollbar_thumb_grab_offset, should_show_scrollbar,
@@ -76,15 +98,15 @@ pub(crate) use self::{
         SETTINGS_POPUP_WIDTH,
     },
     sidebar::{
-        agent_entry_gap, agent_entry_height_in_body, agent_panel_body_rect, agent_panel_entries,
-        agent_panel_scroll_for_target, agent_panel_scroll_metrics, agent_panel_scrollbar_rect,
-        agent_panel_toggle_rect, all_agent_panel_entries, collapsed_sidebar_sections,
-        collapsed_sidebar_toggle_rect, compute_workspace_card_areas, expanded_sidebar_sections,
-        expanded_sidebar_toggle_rect, normalized_workspace_scroll, sidebar_section_divider_rect,
-        workspace_drop_slots, workspace_group_chevron_rect, workspace_list_entries,
-        workspace_list_entries_expanded, workspace_list_rect, workspace_list_scroll_metrics,
-        workspace_list_scrollbar_rect, workspace_parent_group_state, AgentPanelEntry,
-        WorkspaceListEntry,
+        agent_item_gap, agent_item_height_in_body, agent_panel_body_rect, agent_panel_entries,
+        agent_panel_items, agent_panel_scroll_for_target, agent_panel_scroll_metrics,
+        agent_panel_scrollbar_rect, agent_panel_toggle_rect, all_agent_panel_entries,
+        collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, compute_workspace_card_areas,
+        expanded_sidebar_sections, expanded_sidebar_toggle_rect, normalized_workspace_scroll,
+        sidebar_section_divider_rect, workspace_drop_slots, workspace_group_chevron_rect,
+        workspace_list_entries, workspace_list_entries_expanded, workspace_list_rect,
+        workspace_list_scroll_metrics, workspace_list_scrollbar_rect, workspace_parent_group_state,
+        AgentPanelEntry, AgentPanelItem, WorkspaceListEntry,
     },
 };
 
@@ -234,8 +256,10 @@ fn compute_view_internal(
             .clamp(app.sidebar_min_width, app.sidebar_max_width)
     };
 
+    let (content_area, runtime_header_rect, runtime_footer_rect) =
+        runtime_chrome::desktop_content_area(area, app.theme_name.eq_ignore_ascii_case("vrspi"));
     let [sidebar_area, main_area] =
-        Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
+        Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(content_area);
 
     let (tab_bar_rect, terminal_area) = app
         .active
@@ -306,6 +330,8 @@ fn compute_view_internal(
 
     app.view = crate::app::ViewState {
         layout: ViewLayout::Desktop,
+        runtime_header_rect,
+        runtime_footer_rect,
         sidebar_rect: sidebar_area,
         workspace_card_areas,
         tab_bar_rect,
@@ -369,6 +395,8 @@ fn compute_mobile_view(
 
     app.view = crate::app::ViewState {
         layout: ViewLayout::Mobile,
+        runtime_header_rect: Rect::default(),
+        runtime_footer_rect: Rect::default(),
         sidebar_rect: Rect::default(),
         workspace_card_areas: Vec::new(),
         tab_bar_rect: Rect::default(),
@@ -402,6 +430,8 @@ pub fn render_with_runtime_registry(
     let terminal_area = app.view.terminal_area;
 
     render_navigation_chrome(app, terminal_runtimes, frame);
+    runtime_chrome::render_runtime_header(app, frame);
+    runtime_chrome::render_runtime_footer(app, frame);
     if app.view.layout != ViewLayout::Mobile {
         render_tab_bar(app, frame, tab_bar_area);
     }
@@ -446,7 +476,7 @@ pub fn render_with_runtime_registry(
             render_context_menu(app, frame);
         }
         Mode::Settings => render_settings_overlay(app, frame, frame.area()),
-        Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => {
+        Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane | Mode::RenameLobby => {
             render_rename_overlay(app, frame, frame.area())
         }
         Mode::NewLinkedWorktree => render_new_linked_worktree_overlay(app, frame, frame.area()),
@@ -457,6 +487,21 @@ pub fn render_with_runtime_registry(
         Mode::GlobalMenu => render_global_launcher_menu(app, frame),
         Mode::KeybindHelp => render_keybind_help_overlay(app, frame),
         Mode::Navigator => render_navigator_overlay(app, terminal_runtimes, frame),
+        Mode::AgentLobbies => render_lobby_browser(
+            app,
+            frame,
+            app.view.sidebar_rect.union(app.view.terminal_area),
+        ),
+        Mode::CompanyRooms => render_room_browser(
+            app,
+            frame,
+            app.view.sidebar_rect.union(app.view.terminal_area),
+        ),
+        Mode::AgentCall => render_agent_call(
+            app,
+            frame,
+            app.view.sidebar_rect.union(app.view.terminal_area),
+        ),
         Mode::Terminal => {}
     }
 }

@@ -132,9 +132,12 @@ fn parse_notification_sound(
 }
 
 fn print_notification_help() {
-    eprintln!("herdr notification commands:");
     eprintln!(
-        "  herdr notification show <title> [--body TEXT] [--position top-left|top-right|bottom-left|bottom-right] [--sound none|done|request]"
+        "{name} notification commands:",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} notification show <title> [--body TEXT] [--position top-left|top-right|bottom-left|bottom-right] [--sound none|done|request]", name = crate::EXECUTABLE_NAME
     );
 }
 

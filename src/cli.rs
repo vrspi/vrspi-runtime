@@ -30,6 +30,7 @@ mod notification;
 mod pane;
 mod plugin;
 mod protocol_guard;
+mod room;
 mod runtime;
 mod server;
 mod server_not_running;
@@ -118,6 +119,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "tab" => tab::run_tab_command(&args[2..])?,
         "notification" => notification::run_notification_command(&args[2..])?,
         "agent" => agent::run_agent_command(&args[2..])?,
+        "room" => room::run_room_command(&args[2..])?,
         "terminal" => run_terminal_command(&args[2..])?,
         "pane" => pane::run_pane_command(&args[2..])?,
         "plugin" => plugin::run_plugin_command(&args[2..])?,
@@ -254,9 +256,15 @@ fn channel_set_install_action(
 }
 
 fn print_channel_help() {
-    eprintln!("herdr channel commands:");
-    eprintln!("  herdr channel show                  print the configured update channel");
-    eprintln!("  herdr channel set <stable|preview>  choose the update channel");
+    eprintln!("{name} channel commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} channel show                  print the configured update channel",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} channel set <stable|preview>  choose the update channel",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 fn run_config_command(args: &[String]) -> std::io::Result<i32> {
@@ -702,12 +710,18 @@ fn terminal_title(args: &[String]) -> std::io::Result<i32> {
         }
         Some("help" | "--help" | "-h") => {
             eprintln!("usage: herdr terminal title set <title>");
-            eprintln!("       herdr terminal title clear");
+            eprintln!(
+                "       {name} terminal title clear",
+                name = crate::EXECUTABLE_NAME
+            );
             Ok(0)
         }
         _ => {
             eprintln!("usage: herdr terminal title set <title>");
-            eprintln!("       herdr terminal title clear");
+            eprintln!(
+                "       {name} terminal title clear",
+                name = crate::EXECUTABLE_NAME
+            );
             Ok(2)
         }
     }
@@ -1013,27 +1027,60 @@ fn print_session_error(code: &str, message: &str) {
 }
 
 fn print_config_help() {
-    eprintln!("herdr config commands:");
-    eprintln!("  herdr config check  validate config.toml and print diagnostics");
-    eprintln!("  herdr config reset-keys  back up config.toml and remove custom keybindings");
+    eprintln!("{name} config commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} config check  validate config.toml and print diagnostics",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} config reset-keys  back up config.toml and remove custom keybindings",
+        name = crate::EXECUTABLE_NAME
+    );
 }
 
 fn print_terminal_help() {
-    eprintln!("herdr terminal commands:");
-    eprintln!("  herdr terminal attach <terminal_id> [--takeover]");
-    eprintln!("  herdr terminal session control <target> [--takeover] [--cols N] [--rows N]");
-    eprintln!("  herdr terminal session observe <target> [--cols N] [--rows N]");
-    eprintln!("  herdr terminal title set <title>");
-    eprintln!("  herdr terminal title clear");
+    eprintln!("{name} terminal commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} terminal attach <terminal_id> [--takeover]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} terminal session control <target> [--takeover] [--cols N] [--rows N]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} terminal session observe <target> [--cols N] [--rows N]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} terminal title set <title>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} terminal title clear",
+        name = crate::EXECUTABLE_NAME
+    );
     eprintln!("  detach from direct attach with ctrl+b q; send literal ctrl+b with ctrl+b ctrl+b");
 }
 
 fn print_session_help() {
-    eprintln!("herdr session commands:");
-    eprintln!("  herdr session list [--json]");
-    eprintln!("  herdr session attach <name>");
-    eprintln!("  herdr session stop <name> [--json]");
-    eprintln!("  herdr session delete <name> [--json]");
+    eprintln!("{name} session commands:", name = crate::EXECUTABLE_NAME);
+    eprintln!(
+        "  {name} session list [--json]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} session attach <name>",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} session stop <name> [--json]",
+        name = crate::EXECUTABLE_NAME
+    );
+    eprintln!(
+        "  {name} session delete <name> [--json]",
+        name = crate::EXECUTABLE_NAME
+    );
     eprintln!("  use 'default' as <name> to target the default session for stop");
 }
 

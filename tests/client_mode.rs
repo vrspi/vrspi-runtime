@@ -66,6 +66,12 @@ impl Drop for SpawnedHerdr {
     }
 }
 
+/// Binary name under test. `CARGO_BIN_NAME` is not defined for integration
+/// targets, but this file already resolves the binary through
+/// `env!("CARGO_BIN_EXE_vrspi")`, so a rename fails compilation there
+/// rather than silently desyncing these expectations.
+const EXECUTABLE_NAME: &str = "vrspi";
+
 fn cleanup_spawned_herdr(spawned: SpawnedHerdr, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
@@ -102,7 +108,9 @@ fn spawn_client_process_with_args(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.args(args);
     cmd.env("HERDR_DISABLE_SOUND", "1");
     cmd.env("XDG_CONFIG_HOME", config_home);
@@ -140,7 +148,8 @@ fn spawn_no_session_process(config_home: &PathBuf, runtime_dir: &PathBuf) -> Spa
             pixel_height: 0,
         })
         .unwrap();
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("--no-session");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
@@ -198,7 +207,9 @@ fn spawn_server_with_config(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
@@ -540,7 +551,9 @@ fn client_sees_headless_startup_config_diagnostic() {
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", &config_home);
     cmd.env("XDG_RUNTIME_DIR", &runtime_dir);
@@ -578,7 +591,7 @@ fn client_sees_headless_startup_config_diagnostic() {
                 let frame = decode_frame_payload(&payload).expect("decode frame");
                 last_frame_text = frame_text(&frame);
                 if last_frame_text.contains("config.toml")
-                    && last_frame_text.contains("herdr config check")
+                    && last_frame_text.contains(&format!("{EXECUTABLE_NAME} config check"))
                 {
                     found_diagnostic = true;
                     break;
@@ -616,7 +629,15 @@ fn server_unreachable_shows_clear_error() {
     )
     .unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_herdr"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_vrspi"))
+        .env_remove("VRSPI_ENV")
+        .env_remove("VRSPI_SOCKET_PATH")
+        .env_remove("VRSPI_CLIENT_SOCKET_PATH")
+        .env_remove("VRSPI_SESSION")
+        .env_remove("VRSPI_PANE_ID")
+        .env_remove("VRSPI_TAB_ID")
+        .env_remove("VRSPI_WORKSPACE_ID")
+        .env_remove("VRSPI_CONFIG_PATH")
         .arg("client")
         .env("HERDR_DISABLE_SOUND", "1")
         .env("XDG_CONFIG_HOME", &config_home)
@@ -637,7 +658,7 @@ fn server_unreachable_shows_clear_error() {
         "stderr should mention connection failure: {stderr}"
     );
     assert!(
-        stderr.contains("Is herdr server running?"),
+        stderr.contains(&format!("Is {} server running?", EXECUTABLE_NAME)),
         "stderr should include actionable guidance: {stderr}"
     );
     assert!(
@@ -1521,7 +1542,9 @@ fn client_receives_notify_on_agent_state_change() {
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vrspi"));
+
+    support::scrub_inherited_runtime_env(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", &config_home);
     cmd.env("XDG_RUNTIME_DIR", &runtime_dir);

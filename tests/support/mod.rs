@@ -17,6 +17,49 @@ const WATCHDOG_SCAN_INTERVAL: Duration = Duration::from_secs(1);
 const RUNTIME_OWNER_MARKER: &str = ".herdr-test-owner-pid";
 pub const CURRENT_PROTOCOL: u32 = 21;
 
+/// Environment overrides that must not leak from the operator's pane into a
+/// spawned test process.
+///
+/// The runtime reads the `VRSPI_*` spelling first and falls back to `HERDR_*`,
+/// so a test that sets only the legacy name is silently overridden by an
+/// inherited branded one — pointing the child at the operator's live server
+/// instead of the test's isolated socket. This is invisible in CI, where
+/// neither is set, and breaks the suite for anyone running it inside a
+/// managed pane.
+const INHERITED_RUNTIME_OVERRIDES: &[&str] = &[
+    "HERDR_SOCKET_PATH",
+    "VRSPI_SOCKET_PATH",
+    "HERDR_CLIENT_SOCKET_PATH",
+    "VRSPI_CLIENT_SOCKET_PATH",
+    "HERDR_SESSION",
+    "VRSPI_SESSION",
+    "HERDR_PANE_ID",
+    "VRSPI_PANE_ID",
+    "HERDR_TAB_ID",
+    "VRSPI_TAB_ID",
+    "HERDR_WORKSPACE_ID",
+    "VRSPI_WORKSPACE_ID",
+    "HERDR_ENV",
+    "VRSPI_ENV",
+    "HERDR_CONFIG_PATH",
+    "VRSPI_CONFIG_PATH",
+];
+
+/// Clears inherited runtime overrides from a command before the test sets its
+/// own. Call immediately after building the command, before any `.env(..)`.
+pub fn scrub_inherited_runtime_env(cmd: &mut portable_pty::CommandBuilder) {
+    for key in INHERITED_RUNTIME_OVERRIDES {
+        cmd.env_remove(key);
+    }
+}
+
+/// Same, for a `std::process::Command`.
+pub fn scrub_inherited_runtime_env_std(cmd: &mut std::process::Command) {
+    for key in INHERITED_RUNTIME_OVERRIDES {
+        cmd.env_remove(key);
+    }
+}
+
 pub fn register_spawned_herdr_pid(pid: Option<u32>) {
     let Some(pid) = pid else {
         return;
@@ -606,7 +649,7 @@ fn current_checkout_root() -> &'static Path {
 }
 
 fn is_test_herdr_binary(path: &Path) -> bool {
-    path.ends_with("target/debug/herdr") && path.starts_with(current_checkout_root())
+    path.ends_with("target/debug/vrspi") && path.starts_with(current_checkout_root())
 }
 
 extern "C" fn run_atexit_cleanup() {
@@ -730,7 +773,7 @@ mod tests {
 
     #[test]
     fn test_binary_matcher_accepts_current_checkout_debug_binary() {
-        let binary = current_checkout_root().join("target/debug/herdr");
+        let binary = current_checkout_root().join("target/debug/vrspi");
         assert!(
             is_test_herdr_binary(&binary),
             "current checkout debug binary should be considered test-owned"

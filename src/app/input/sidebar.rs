@@ -180,6 +180,24 @@ impl AppState {
         Rect::new(footer.x, footer.y, width, footer.height)
     }
 
+    /// Reuses the existing agent-section spacer; no pane or list rows move.
+    pub(crate) fn sidebar_lobby_button_rect(&self) -> Rect {
+        if !crate::app::state::SHOW_AGENT_LOBBIES
+            || self.sidebar_collapsed
+            || self.view.layout == ViewLayout::Mobile
+        {
+            return Rect::default();
+        }
+        let (_, area) = crate::ui::expanded_sidebar_sections(
+            self.view.sidebar_rect,
+            self.sidebar_section_split,
+        );
+        if area.height < 3 || area.width < 15 {
+            return Rect::default();
+        }
+        Rect::new(area.x, area.y + 2, area.width, 1)
+    }
+
     pub(crate) fn global_launcher_rect(&self) -> Rect {
         if self.view.layout == ViewLayout::Mobile {
             return self.view.mobile_menu_hit_area;
@@ -198,10 +216,19 @@ impl AppState {
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
         let mut labels = vec!["settings", "keybinds", "reload config"];
-        if self.update_available.is_some() {
-            labels.push("update ready");
-        } else if self.latest_release_notes_available {
-            labels.push("what's new");
+        if self.focused_pane_hosts_agent() {
+            labels.push("call agent");
+        }
+        if crate::app::state::SHOW_AGENT_LOBBIES {
+            labels.push("agent lobbies");
+        }
+        labels.push("company rooms");
+        if crate::brand::UPSTREAM_UPDATES_ENABLED {
+            if self.update_available.is_some() {
+                labels.push("update ready");
+            } else if self.latest_release_notes_available {
+                labels.push("what's new");
+            }
         }
         labels.push("detach");
         labels
@@ -486,6 +513,47 @@ impl AppState {
         &self,
         row: u16,
     ) -> Option<(usize, usize, crate::layout::PaneId)> {
+        match self.agent_panel_item_at(row)? {
+            (crate::ui::AgentPanelItem::Agent(index), entries) => entries
+                .get(index)
+                .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id)),
+            _ => None,
+        }
+    }
+
+    /// Workspace whose group header is under the pointer, if any.
+    pub(super) fn agent_group_header_at(&self, row: u16) -> Option<usize> {
+        match self.agent_panel_item_at(row)? {
+            (crate::ui::AgentPanelItem::Group { ws_idx, .. }, _) => Some(ws_idx),
+            _ => None,
+        }
+    }
+
+    /// Folds or unfolds one workspace's agents in the grouped list.
+    pub(super) fn toggle_agent_group(&mut self, ws_idx: usize) {
+        let Some(id) = self
+            .workspaces
+            .get(ws_idx)
+            .map(|workspace| workspace.id.clone())
+        else {
+            return;
+        };
+        if !self.collapsed_agent_groups.remove(&id) {
+            self.collapsed_agent_groups.insert(id);
+        }
+        // Folding shortens the list; keep the offset inside the new bounds so
+        // the rows under the pointer are the ones that were drawn.
+        let detail_area = self.agent_panel_rect();
+        let metrics = crate::ui::agent_panel_scroll_metrics(self, detail_area);
+        self.agent_panel_scroll = self.agent_panel_scroll.min(metrics.max_offset_from_bottom);
+    }
+
+    /// The laid-out agent item under the pointer, measured exactly as render
+    /// lays it out.
+    fn agent_panel_item_at(
+        &self,
+        row: u16,
+    ) -> Option<(crate::ui::AgentPanelItem, Vec<crate::ui::AgentPanelEntry>)> {
         if self.sidebar_collapsed {
             return None;
         }
@@ -503,18 +571,19 @@ impl AppState {
         let mut row_y = body.y;
         let body_bottom = body.y + body.height;
         let entries = crate::ui::agent_panel_entries(self);
+        let items = crate::ui::agent_panel_items(self, &entries);
         let scroll = self.agent_panel_scroll.min(metrics.max_offset_from_bottom);
-        for (index, detail) in entries.iter().enumerate().skip(scroll) {
-            let height = crate::ui::agent_entry_height_in_body(self, detail, body.height);
+        for (index, item) in items.iter().enumerate().skip(scroll) {
+            let height = crate::ui::agent_item_height_in_body(self, &entries, *item, body.height);
             if row_y.saturating_add(height) > body_bottom {
                 break;
             }
             if row >= row_y && row < row_y.saturating_add(height) {
-                return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
+                return Some((*item, entries));
             }
             row_y = row_y
                 .saturating_add(height)
-                .saturating_add(crate::ui::agent_entry_gap(self, index, entries.len()))
+                .saturating_add(crate::ui::agent_item_gap(self, &items, index))
                 .min(body_bottom);
         }
         None
@@ -628,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn update_pending_menu_surfaces_update_ready_entry() {
+    fn a_pending_upstream_update_never_reaches_the_menu() {
         let mut app = app_for_mouse_test();
         app.state.update_available = Some("0.3.2".into());
         app.state.latest_release_notes_available = true;
@@ -646,7 +715,7 @@ mod tests {
                 "settings",
                 "keybinds",
                 "reload config",
-                "update ready",
+                "company rooms",
                 "detach"
             ]
         );
@@ -667,14 +736,28 @@ mod tests {
 
         assert_eq!(
             app.state.global_menu_labels(),
-            vec!["settings", "keybinds", "reload config", "detach"]
+            vec![
+                "settings",
+                "keybinds",
+                "reload config",
+                "company rooms",
+                "detach"
+            ]
         );
 
         let menu = app.state.global_menu_rect();
+        // "detach" is the last row; derive its offset rather than hard-coding
+        // one that shifts whenever a menu entry is added.
+        let detach_row = app
+            .state
+            .global_menu_labels()
+            .iter()
+            .position(|label| *label == "detach")
+            .expect("detach entry") as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             menu.x + 2,
-            menu.y + 4,
+            menu.y + 1 + detach_row,
         ));
 
         assert!(app.state.detach_requested);
@@ -683,7 +766,9 @@ mod tests {
     }
 
     #[test]
-    fn whats_new_remains_in_menu_for_latest_installed_release_notes() {
+    fn upstream_release_notes_never_reach_the_menu() {
+        // Release notes describe upstream Herdr releases; even when the state
+        // says some are available, the menu does not advertise them.
         let mut app = app_for_mouse_test();
         app.state.latest_release_notes_available = true;
 
@@ -693,7 +778,7 @@ mod tests {
                 "settings",
                 "keybinds",
                 "reload config",
-                "what's new",
+                "company rooms",
                 "detach"
             ]
         );
@@ -782,20 +867,94 @@ mod tests {
             crate::ui::should_show_scrollbar(metrics),
         );
 
+        // Header, agent, gap, header, two-row agent.
+        assert_eq!(app.state.agent_group_header_at(body.y), Some(0));
+        assert_eq!(app.state.agent_detail_target_at(body.y), None);
         assert_eq!(
-            app.state.agent_detail_target_at(body.y),
+            app.state.agent_detail_target_at(body.y + 1),
             Some((0, 0, first_pane))
         );
-        assert_eq!(app.state.agent_detail_target_at(body.y + 1), None);
+        assert_eq!(app.state.agent_detail_target_at(body.y + 2), None);
+        assert_eq!(app.state.agent_group_header_at(body.y + 2), None);
+        assert_eq!(app.state.agent_group_header_at(body.y + 3), Some(1));
+        assert_eq!(
+            app.state.agent_detail_target_at(body.y + 4),
+            Some((1, 0, second_pane))
+        );
+        assert_eq!(
+            app.state.agent_detail_target_at(body.y + 5),
+            Some((1, 0, second_pane)),
+            "the trailing row of a tall agent is still that agent"
+        );
+
+        app.state.sidebar_agents.row_gap = 0;
+        assert_eq!(app.state.agent_group_header_at(body.y + 2), Some(1));
         assert_eq!(
             app.state.agent_detail_target_at(body.y + 3),
             Some((1, 0, second_pane))
         );
+    }
 
-        app.state.sidebar_agents.row_gap = 0;
-        assert_eq!(
-            app.state.agent_detail_target_at(body.y + 1),
-            Some((1, 0, second_pane))
+    #[test]
+    fn clicking_a_workspace_header_folds_and_unfolds_its_agents() {
+        let mut app = app_for_mouse_test();
+        let first = Workspace::test_new("one");
+        let first_pane = first.tabs[0].root_pane;
+        let second = Workspace::test_new("two");
+        let second_pane = second.tabs[0].root_pane;
+        app.state.workspaces = vec![first, second];
+        app.state.ensure_test_terminals();
+        for (ws_idx, pane_id, agent) in
+            [(0, first_pane, Agent::Pi), (1, second_pane, Agent::Claude)]
+        {
+            let terminal_id = app.state.workspaces[ws_idx].tabs[0].panes[&pane_id]
+                .attached_terminal_id
+                .clone();
+            app.state
+                .terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .detected_agent = Some(agent);
+        }
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        let detail_area = app.state.agent_panel_rect();
+        let header_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| app.state.agent_group_header_at(*row) == Some(0))
+            .expect("first workspace header");
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            detail_area.x + 2,
+            header_row,
+        ));
+        assert!(app
+            .state
+            .collapsed_agent_groups
+            .contains(&app.state.workspaces[0].id));
+        // Folding is presentation only: no workspace switch, no focus change.
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(
+            (detail_area.y..detail_area.y + detail_area.height).all(|row| {
+                app.state
+                    .agent_detail_target_at(row)
+                    .is_none_or(|(_, _, pane)| pane != first_pane)
+            })
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            detail_area.x + 2,
+            header_row,
+        ));
+        assert!(app.state.collapsed_agent_groups.is_empty());
+        assert!(
+            (detail_area.y..detail_area.y + detail_area.height).any(|row| {
+                app.state
+                    .agent_detail_target_at(row)
+                    .is_some_and(|(_, _, pane)| pane == first_pane)
+            })
         );
     }
 
@@ -902,10 +1061,19 @@ mod tests {
             app.state.view.sidebar_rect,
             app.state.sidebar_section_split,
         );
+        // Find the second workspace's agent row the way the pointer would,
+        // since workspace headers now sit between the agents.
+        let target_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.state
+                    .agent_detail_target_at(*row)
+                    .is_some_and(|(_, _, pane)| pane == second_pane)
+            })
+            .expect("second agent row");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
-            detail_area.y + 6,
+            target_row,
         ));
 
         assert_eq!(app.state.active, Some(1));
@@ -1581,21 +1749,22 @@ mod tests {
             .cwd = second_repo.clone();
         app.state.sidebar_spaces.row_gap = 1;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let top = app.state.view.sidebar_rect.y;
 
         assert_eq!(
-            app.state.workspace_drop_target_at_row(0),
+            app.state.workspace_drop_target_at_row(top),
             Some(crate::app::state::WorkspaceDropTarget::Before(0))
         );
         assert_eq!(
-            app.state.workspace_drop_target_at_row(1),
+            app.state.workspace_drop_target_at_row(top + 1),
             Some(crate::app::state::WorkspaceDropTarget::Before(0))
         );
         assert_eq!(
-            app.state.workspace_drop_target_at_row(2),
+            app.state.workspace_drop_target_at_row(top + 2),
             Some(crate::app::state::WorkspaceDropTarget::Before(0))
         );
         assert_eq!(
-            app.state.workspace_drop_target_at_row(3),
+            app.state.workspace_drop_target_at_row(top + 3),
             Some(crate::app::state::WorkspaceDropTarget::Before(1))
         );
 

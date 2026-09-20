@@ -26,3 +26,6 @@ __pycache__/
 
 /.wrangler/
 **/.wrangler/
+
+# browser automation tool artifacts
+.playwright-mcp/

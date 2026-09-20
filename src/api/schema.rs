@@ -2,8 +2,10 @@ use serde::{Deserialize, Serialize};
 
 pub mod agents;
 pub mod common;
+pub mod company;
 pub mod events;
 pub mod integrations;
+pub mod messages;
 pub mod panes;
 pub mod plugins;
 pub mod response;
@@ -15,8 +17,10 @@ pub mod worktrees;
 
 pub use agents::*;
 pub use common::*;
+pub use company::*;
 pub use events::*;
 pub use integrations::*;
+pub use messages::*;
 pub use panes::*;
 pub use plugins::*;
 pub use response::*;
@@ -127,6 +131,68 @@ pub enum Method {
     AgentPrompt(AgentPromptParams),
     #[serde(rename = "agent.wait")]
     AgentWait(AgentWaitParams),
+    #[serde(rename = "agent.self")]
+    AgentSelf(AgentSelfParams),
+    #[serde(rename = "agent.message.send")]
+    AgentMessageSend(AgentMessageSendParams),
+    #[serde(rename = "agent.message.list")]
+    AgentMessageList(AgentMessageListParams),
+    #[serde(rename = "agent.message.get")]
+    AgentMessageGet(AgentMessageTargetParams),
+    #[serde(rename = "agent.message.ack")]
+    AgentMessageAck(AgentMessageTargetParams),
+    #[serde(rename = "agent.message.revoke")]
+    AgentMessageRevoke(AgentMessageTargetParams),
+    #[serde(rename = "agent.message.wait")]
+    AgentMessageWait(AgentMessageWaitParams),
+    #[serde(rename = "agent.lobby.connect")]
+    AgentLobbyConnect(AgentLobbyConnectParams),
+    #[serde(rename = "agent.lobby.list")]
+    AgentLobbyList(AgentLobbyListParams),
+    #[serde(rename = "agent.lobby.leave")]
+    AgentLobbyLeave(AgentLobbyTargetParams),
+    #[serde(rename = "agent.lobby.remove")]
+    AgentLobbyRemove(AgentLobbyRemoveMemberParams),
+    #[serde(rename = "agent.lobby.delete")]
+    AgentLobbyDelete(AgentLobbyTargetParams),
+    #[serde(rename = "agent.lobby.rename")]
+    AgentLobbyRename(AgentLobbyRenameParams),
+    #[serde(rename = "room.create")]
+    RoomCreate(RoomCreateParams),
+    #[serde(rename = "room.list")]
+    RoomList(RoomListParams),
+    #[serde(rename = "room.get")]
+    RoomGet(RoomTargetParams),
+    #[serde(rename = "room.set_lifecycle")]
+    RoomSetLifecycle(RoomLifecycleParams),
+    #[serde(rename = "room.member.add")]
+    RoomMemberAdd(RoomMemberAddParams),
+    #[serde(rename = "room.member.remove")]
+    RoomMemberRemove(RoomMemberTargetParams),
+    #[serde(rename = "room.member.bind")]
+    RoomMemberBind(RoomMemberBindParams),
+    #[serde(rename = "room.post")]
+    RoomPost(RoomPostParams),
+    #[serde(rename = "room.ack")]
+    RoomAck(RoomDeliveryAckParams),
+    #[serde(rename = "room.events")]
+    RoomEvents(RoomEventListParams),
+    #[serde(rename = "room.memory.put")]
+    RoomMemoryPut(RoomMemoryPutParams),
+    #[serde(rename = "room.memory.search")]
+    RoomMemorySearch(RoomMemorySearchParams),
+    #[serde(rename = "room.memory.get")]
+    RoomMemoryGet(RoomMemoryTargetParams),
+    #[serde(rename = "room.memory.accept")]
+    RoomMemoryAccept(RoomMemoryTargetParams),
+    #[serde(rename = "room.memory.delete")]
+    RoomMemoryDelete(RoomMemoryTargetParams),
+    #[serde(rename = "room.delete")]
+    RoomDelete(RoomTargetParams),
+    #[serde(rename = "room.member.grant")]
+    RoomMemberGrant(RoomMemberGrantParams),
+    #[serde(rename = "room.allowance.extend")]
+    RoomAllowanceExtend(RoomAllowanceParams),
     #[serde(rename = "pane.split")]
     PaneSplit(PaneSplitParams),
     #[serde(rename = "pane.swap")]

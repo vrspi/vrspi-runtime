@@ -185,6 +185,14 @@ impl App {
                     context.focused_pane_id = Some(pane_id.clone());
                     context
                 }),
+            EventData::AgentLobbyUpdated { lobby } => lobby
+                .workspace_id
+                .as_deref()
+                .and_then(|workspace_id| {
+                    self.plugin_context_for_workspace_id(workspace_id, correlation_id)
+                })
+                .unwrap_or_else(|| empty_plugin_context(correlation_id)),
+            EventData::AgentLobbyDeleted { .. } => empty_plugin_context(correlation_id),
         }
     }
 

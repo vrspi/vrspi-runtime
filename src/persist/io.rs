@@ -53,6 +53,11 @@ fn save_json_to_path<T: serde::Serialize>(path: &Path, snapshot: &T) -> std::io:
     let json = serde_json::to_string_pretty(snapshot)?;
     let tmp_path = target.with_extension("json.tmp");
     std::fs::write(&tmp_path, &json)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))?;
+    }
     if let Err(err) = std::fs::rename(&tmp_path, &target) {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(err);
@@ -83,14 +88,22 @@ pub(super) fn clear_path(path: &Path) -> std::io::Result<()> {
     }
 }
 
-pub fn save(snapshot: &SessionSnapshot, history: Option<&SessionHistorySnapshot>) {
+pub(crate) fn save_checked(
+    snapshot: &SessionSnapshot,
+    history: Option<&SessionHistorySnapshot>,
+) -> std::io::Result<()> {
     let path = session_path();
     let history_path = session_history_path();
-    if let Err(err) = save_to_paths(&path, &history_path, snapshot, history) {
-        crate::logging::session_save_failed(&path, &err.to_string());
-        return;
-    }
+    save_to_paths(&path, &history_path, snapshot, history)?;
     crate::logging::session_saved(&path, snapshot.workspaces.len());
+    Ok(())
+}
+
+pub fn save(snapshot: &SessionSnapshot, history: Option<&SessionHistorySnapshot>) {
+    let path = session_path();
+    if let Err(err) = save_checked(snapshot, history) {
+        crate::logging::session_save_failed(&path, &err.to_string());
+    }
 }
 
 pub fn clear() {
@@ -207,6 +220,8 @@ mod tests {
             sidebar_width: Some(26),
             sidebar_section_split: Some(0.5),
             collapsed_space_keys: std::collections::HashSet::new(),
+            collaboration: Default::default(),
+            company: Default::default(),
         }
     }
 
