@@ -236,7 +236,7 @@ try {
 
     $required = @(
         "herdr.exe",
-        "conpty\herdr-conpty.json",
+        "conpty\vrspi-conpty.json",
         "conpty\conpty.dll",
         "conpty\x64\OpenConsole.exe",
         "conpty\arm64\OpenConsole.exe",

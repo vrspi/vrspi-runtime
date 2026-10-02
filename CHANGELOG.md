@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## [0.9.3] - 2026-10-02
+
+### Fixed
+- The Windows installer downloaded the release and then failed with
+  `herdr.exe is not recognized`, leaving nothing installed. It verified and
+  activated the release by running `herdr.exe`, while the package contains
+  `vrspi.exe`. Every path to the executable now names the file that is
+  actually shipped.
+- The bundled ConPTY marker is `conpty/vrspi-conpty.json`. The packaging tool,
+  the installer's verification, the runtime bundle check and the Windows test
+  fixtures all name it identically; a mismatch would have left Windows panes
+  without their bundled console host.
+- Windows installs now live under `%USERPROFILE%\.vrspi` with the command
+  exposed from `%LOCALAPPDATA%\Programs\Vrspi\bin`, and the installer's
+  messages name Vrspi rather than telling users to run a command that does not
+  exist. `VRSPI_HOME`, `VRSPI_INSTALL_DIR`, `VRSPI_CHANNEL` and
+  `VRSPI_MANIFEST_URL` are read first, with the Herdr-era spellings still
+  honoured.
+
 ## [0.9.2] - 2026-10-02
 
 ### Added

@@ -1,9 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$Channel = $(if ($env:VRSPI_CHANNEL) { $env:VRSPI_CHANNEL } else { $env:HERDR_CHANNEL }),
-    [string]$ManifestUrl = $env:HERDR_MANIFEST_URL,
+    [string]$ManifestUrl = $(if ($env:VRSPI_MANIFEST_URL) { $env:VRSPI_MANIFEST_URL } else { $env:HERDR_MANIFEST_URL }),
     [string]$InstallDir = $(if ($env:VRSPI_INSTALL_DIR) { $env:VRSPI_INSTALL_DIR } else { $env:HERDR_INSTALL_DIR }),
-    [string]$ExpectedBuildId = $env:HERDR_EXPECTED_BUILD_ID,
+    [string]$ExpectedBuildId = $(if ($env:VRSPI_EXPECTED_BUILD_ID) { $env:VRSPI_EXPECTED_BUILD_ID } else { $env:HERDR_EXPECTED_BUILD_ID }),
     [int]$Retain = 3,
     [string]$LocalPackagePath,
     [string]$LocalPackageFormat,
@@ -33,7 +33,7 @@ if ($localPackageValueCount -notin @(0, 4)) {
 }
 $useLocalPackage = $localPackageValueCount -eq 4
 if ($useLocalPackage -and $LocalPackageFormat -notin @("zip", "exe")) {
-    throw "Local Herdr package has unsupported format '$LocalPackageFormat'."
+    throw "Local Vrspi package has unsupported format '$LocalPackageFormat'."
 }
 
 function Write-Step {
@@ -46,7 +46,7 @@ function Write-WarningStep {
     Write-Warning $Message
 }
 
-function Get-HerdrCommandSource {
+function Get-VrspiCommandSource {
     $existing = Get-Command vrspi -ErrorAction SilentlyContinue
     if ($null -eq $existing) {
         return $null
@@ -133,8 +133,8 @@ function Update-PathRegistryEntry {
 }
 
 function Publish-EnvironmentChange {
-    if (-not ("HerdrInstaller.EnvironmentNativeMethods" -as [type])) {
-        Add-Type -Namespace HerdrInstaller -Name EnvironmentNativeMethods -MemberDefinition @'
+    if (-not ("VrspiInstaller.EnvironmentNativeMethods" -as [type])) {
+        Add-Type -Namespace VrspiInstaller -Name EnvironmentNativeMethods -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
 public static extern System.IntPtr SendMessageTimeout(
     System.IntPtr hWnd,
@@ -148,7 +148,7 @@ public static extern System.IntPtr SendMessageTimeout(
     }
 
     $result = [UIntPtr]::Zero
-    [HerdrInstaller.EnvironmentNativeMethods]::SendMessageTimeout(
+    [VrspiInstaller.EnvironmentNativeMethods]::SendMessageTimeout(
         [IntPtr]0xffff,
         0x1a,
         [UIntPtr]::Zero,
@@ -225,13 +225,13 @@ function Invoke-CurlDownload {
     $parsedUri = $null
     if (-not [System.Uri]::TryCreate($Uri, [System.UriKind]::Absolute, [ref]$parsedUri) -or
         $parsedUri.Scheme -notin @("http", "https")) {
-        throw "Herdr download URL must use HTTP or HTTPS: $Uri"
+        throw "Vrspi download URL must use HTTP or HTTPS: $Uri"
     }
 
     $curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($null -eq $curl) {
-        throw "Herdr installation requires curl.exe, which is included with supported Windows versions."
+        throw "Vrspi installation requires curl.exe, which is included with supported Windows versions."
     }
 
     $arguments = @(
@@ -279,7 +279,7 @@ function ConvertTo-ManifestObject {
 function Get-RemoteManifest {
     param([string]$Uri)
 
-    $manifestPath = Join-Path ([System.IO.Path]::GetTempPath()) ("herdr-manifest-" + [System.Guid]::NewGuid().ToString("N") + ".json")
+    $manifestPath = Join-Path ([System.IO.Path]::GetTempPath()) ("vrspi-manifest-" + [System.Guid]::NewGuid().ToString("N") + ".json")
     try {
         Invoke-CurlDownload -Uri $Uri -Destination $manifestPath
         return ConvertTo-ManifestObject -Manifest ([System.IO.File]::ReadAllText($manifestPath))
@@ -309,7 +309,7 @@ function Test-FileDigest {
         $sha256.Dispose()
     }
     if ($actual -ne $ExpectedDigest.ToLowerInvariant()) {
-        throw "Downloaded Herdr checksum did not match. Expected $ExpectedDigest but got $actual."
+        throw "Downloaded Vrspi checksum did not match. Expected $ExpectedDigest but got $actual."
     }
 }
 
@@ -333,7 +333,7 @@ function Test-RegularDirectory {
     return -not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)
 }
 
-function Test-HerdrReleaseComplete {
+function Test-VrspiReleaseComplete {
     param(
         [string]$ReleaseDir,
         [string]$Format
@@ -342,8 +342,8 @@ function Test-HerdrReleaseComplete {
     if (-not (Test-RegularDirectory -Path $ReleaseDir)) {
         return $false
     }
-    $herdrExe = Join-Path $ReleaseDir "vrspi.exe"
-    if (-not (Test-RegularFile -Path $herdrExe)) {
+    $vrspiExe = Join-Path $ReleaseDir "vrspi.exe"
+    if (-not (Test-RegularFile -Path $vrspiExe)) {
         return $false
     }
     if ($Format -eq "exe") {
@@ -356,7 +356,7 @@ function Test-HerdrReleaseComplete {
         -not (Test-RegularDirectory -Path (Join-Path $conptyRoot "arm64"))) {
         return $false
     }
-    $markerPath = Join-Path $conptyRoot "herdr-conpty.json"
+    $markerPath = Join-Path $conptyRoot "vrspi-conpty.json"
     $required = @(
         "conpty/conpty.dll",
         "conpty/x64/OpenConsole.exe",
@@ -408,7 +408,7 @@ function Test-HerdrReleaseComplete {
         $actualBundleFiles = @($bundleEntries | Where-Object { -not $_.PSIsContainer } | ForEach-Object {
             $_.FullName.Substring($releaseRoot.Length + 1).Replace('\', '/')
         })
-        $expectedBundleFiles = @($expectedConptyFiles) + "conpty/herdr-conpty.json"
+        $expectedBundleFiles = @($expectedConptyFiles) + "conpty/vrspi-conpty.json"
         if (@(Compare-Object $expectedBundleFiles $actualBundleFiles).Count -ne 0) {
             return $false
         }
@@ -478,7 +478,7 @@ function Remove-DirectoryWithRetry {
             return
         } catch {
             if ([DateTime]::UtcNow -ge $deadline) {
-                Write-WarningStep "Herdr installed successfully but could not remove a temporary release backup at $Path."
+                Write-WarningStep "Vrspi installed successfully but could not remove a temporary release backup at $Path."
                 return
             }
             Start-Sleep -Milliseconds 100
@@ -530,7 +530,7 @@ function Set-ManagedJunction {
         [string]$LinkPath,
         [string]$TargetPath,
         [string]$ManagedTargetPrefix,
-        [bool]$AllowLegacyHerdrBinMigration = $false
+        [bool]$AllowLegacyVrspiBinMigration = $false
     )
 
     if (Test-Path -LiteralPath $LinkPath) {
@@ -549,7 +549,7 @@ function Set-ManagedJunction {
             Remove-Item -LiteralPath $LinkPath -Recurse -Force
         } elseif ($item.PSIsContainer) {
             if ((Get-ChildItem -LiteralPath $LinkPath -Force | Select-Object -First 1) -ne $null) {
-                if (-not (Move-LegacyHerdrBinDirectory -Path $LinkPath -AllowMigration $AllowLegacyHerdrBinMigration)) {
+                if (-not (Move-LegacyVrspiBinDirectory -Path $LinkPath -AllowMigration $AllowLegacyVrspiBinMigration)) {
                     throw "Refusing to replace non-empty directory at $LinkPath with a junction."
                 }
             } else {
@@ -564,7 +564,7 @@ function Set-ManagedJunction {
     New-Item -ItemType Junction -Path $LinkPath -Target $TargetPath | Out-Null
 }
 
-function Move-LegacyHerdrBinDirectory {
+function Move-LegacyVrspiBinDirectory {
     param(
         [string]$Path,
         [bool]$AllowMigration
@@ -585,7 +585,7 @@ function Move-LegacyHerdrBinDirectory {
 
     $legacyPath = "$Path.legacy.$([System.Guid]::NewGuid().ToString("N"))"
     Move-Item -LiteralPath $Path -Destination $legacyPath
-    Write-Step "Moved legacy Herdr bin directory to $legacyPath."
+    Write-Step "Moved legacy Vrspi bin directory to $legacyPath."
     return $true
 }
 
@@ -630,7 +630,7 @@ function Remove-OldReleases {
     }
 }
 
-function Resolve-HerdrVersion {
+function Resolve-VrspiVersion {
     param(
         [object]$Manifest,
         [string]$SelectedChannel
@@ -655,7 +655,7 @@ if ($env:OS -ne "Windows_NT") {
 }
 
 if (-not [Environment]::Is64BitOperatingSystem) {
-    Write-Error "Herdr requires 64-bit Windows."
+    Write-Error "Vrspi requires 64-bit Windows."
     exit 1
 }
 
@@ -676,18 +676,18 @@ switch ($architecture) {
     }
 }
 
-$herdrHome = if ([string]::IsNullOrWhiteSpace($env:HERDR_HOME)) {
-    Join-Path $env:USERPROFILE ".herdr"
+$vrspiHome = if ([string]::IsNullOrWhiteSpace($(if ($env:VRSPI_HOME) { $env:VRSPI_HOME } else { $env:HERDR_HOME }))) {
+    Join-Path $env:USERPROFILE ".vrspi"
 } else {
-    $env:HERDR_HOME
+    $(if ($env:VRSPI_HOME) { $env:VRSPI_HOME } else { $env:HERDR_HOME })
 }
-$herdrHome = [System.IO.Path]::GetFullPath($herdrHome)
-$standaloneRoot = Join-Path $herdrHome "packages\standalone"
+$vrspiHome = [System.IO.Path]::GetFullPath($vrspiHome)
+$standaloneRoot = Join-Path $vrspiHome "packages\standalone"
 $releasesDir = Join-Path $standaloneRoot "releases"
 $currentDir = Join-Path $standaloneRoot "current"
 $lockPath = Join-Path $standaloneRoot "install.lock"
 
-$defaultVisibleBinDir = Join-Path $env:LOCALAPPDATA "Programs\Herdr\bin"
+$defaultVisibleBinDir = Join-Path $env:LOCALAPPDATA "Programs\Vrspi\bin"
 $visibleBinDir = if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     $defaultVisibleBinDir
 } else {
@@ -703,10 +703,10 @@ try {
     $allowLegacyVisibleBinMigration = $false
 }
 
-$existingHerdr = Get-HerdrCommandSource
-if (-not [string]::IsNullOrWhiteSpace($existingHerdr) -and -not (Test-PathStartsWith -Path $existingHerdr -Prefix $visibleBinDir)) {
-    Write-Step "Detected existing Herdr command at $existingHerdr"
-    Write-WarningStep "PATH order decides which Herdr runs. This installer will put $visibleBinDir first for future and current PowerShell sessions."
+$existingVrspi = Get-VrspiCommandSource
+if (-not [string]::IsNullOrWhiteSpace($existingVrspi) -and -not (Test-PathStartsWith -Path $existingVrspi -Prefix $visibleBinDir)) {
+    Write-Step "Detected existing Vrspi command at $existingVrspi"
+    Write-WarningStep "PATH order decides which Vrspi runs. This installer will put $visibleBinDir first for future and current PowerShell sessions."
 }
 
 if ($useLocalPackage) {
@@ -717,14 +717,14 @@ if ($useLocalPackage) {
     }
 } else {
     if (-not $channelWasExplicit) {
-        if (-not [string]::IsNullOrWhiteSpace($existingHerdr)) {
-            $detectedChannel = [string](& $existingHerdr channel show 2>$null | Select-Object -Last 1)
+        if (-not [string]::IsNullOrWhiteSpace($existingVrspi)) {
+            $detectedChannel = [string](& $existingVrspi channel show 2>$null | Select-Object -Last 1)
             $detectedChannel = $detectedChannel.Trim()
             if ($LASTEXITCODE -ne 0 -or $detectedChannel -notin @("stable", "preview")) {
-                throw "Could not determine the existing Herdr update channel. Rerun with -Channel stable or -Channel preview."
+                throw "Could not determine the existing Vrspi update channel. Rerun with -Channel stable or -Channel preview."
             }
             $Channel = $detectedChannel
-            Write-Step "Preserving existing Herdr $Channel channel"
+            Write-Step "Preserving existing Vrspi $Channel channel"
         } elseif (-not [string]::IsNullOrWhiteSpace($ManifestUrl) -and $ManifestUrl -match "/preview\.json$") {
             $Channel = "preview"
         } else {
@@ -740,7 +740,7 @@ if ($useLocalPackage) {
         }
     }
 
-    Write-Step "Fetching Herdr $Channel manifest"
+    Write-Step "Fetching Vrspi $Channel manifest"
     $manifest = Get-RemoteManifest -Uri $ManifestUrl
     $manifestChannelProperty = $manifest.PSObject.Properties["channel"]
     if (-not $channelWasExplicit -and $null -ne $manifestChannelProperty -and [string]$manifestChannelProperty.Value -eq "preview") {
@@ -762,31 +762,31 @@ if ($useLocalPackage) {
     }
     $asset = Get-ManifestAsset -Manifest $manifest -Target $target
     if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildId) -and [string]$manifest.build_id -ne $ExpectedBuildId) {
-        throw "Preview manifest changed while updating. Expected build $ExpectedBuildId but found $($manifest.build_id). Run herdr update again."
+        throw "Preview manifest changed while updating. Expected build $ExpectedBuildId but found $($manifest.build_id). Run vrspi update again."
     }
-    $versionIdentity = Resolve-HerdrVersion -Manifest $manifest -SelectedChannel $Channel
+    $versionIdentity = Resolve-VrspiVersion -Manifest $manifest -SelectedChannel $Channel
 }
 $safeVersionIdentity = $versionIdentity -replace '[^0-9A-Za-z._-]', '-'
 $releaseName = "$safeVersionIdentity-$targetTriple"
 $releaseDir = Join-Path $releasesDir $releaseName
 
-Write-Step "Installing Herdr $versionIdentity for $targetTriple"
-$tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("herdr-install-" + [System.Guid]::NewGuid().ToString("N"))
+Write-Step "Installing Vrspi $versionIdentity for $targetTriple"
+$tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("vrspi-install-" + [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
 
 try {
     Invoke-WithInstallLock -LockPath $lockPath -Script {
         Remove-StaleInstallArtifacts -ReleasesDir $releasesDir
 
-        if (-not (Test-HerdrReleaseComplete -ReleaseDir $releaseDir -Format $asset.Format)) {
+        if (-not (Test-VrspiReleaseComplete -ReleaseDir $releaseDir -Format $asset.Format)) {
             $downloadPath = if ($useLocalPackage) {
                 $LocalPackagePath
             } else {
-                Join-Path $tempDir "herdr-download.$($asset.Format)"
+                Join-Path $tempDir "vrspi-download.$($asset.Format)"
             }
             $stagingDir = Join-Path $releasesDir ".staging.$releaseName.$PID"
             if (-not $useLocalPackage) {
-                Write-Step "Downloading Herdr"
+                Write-Step "Downloading Vrspi"
                 Invoke-CurlDownload -Uri $asset.Url -Destination $downloadPath
             }
             Test-FileDigest -Path $downloadPath -ExpectedDigest $asset.Sha256
@@ -795,15 +795,15 @@ try {
                 Expand-Archive -LiteralPath $downloadPath -DestinationPath $stagingDir
             } else {
                 New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
-                Copy-Item -LiteralPath $downloadPath -Destination (Join-Path $stagingDir "herdr.exe")
+                Copy-Item -LiteralPath $downloadPath -Destination (Join-Path $stagingDir "vrspi.exe")
             }
-            if (-not (Test-HerdrReleaseComplete -ReleaseDir $stagingDir -Format $asset.Format)) {
-                throw "Downloaded Herdr package is incomplete or failed ConPTY verification."
+            if (-not (Test-VrspiReleaseComplete -ReleaseDir $stagingDir -Format $asset.Format)) {
+                throw "Downloaded Vrspi package is incomplete or failed ConPTY verification."
             }
-            $stagedHerdr = Join-Path $stagingDir "herdr.exe"
-            & $stagedHerdr --version *> $null
+            $stagedVrspi = Join-Path $stagingDir "vrspi.exe"
+            & $stagedVrspi --version *> $null
             if ($LASTEXITCODE -ne 0) {
-                throw "Downloaded Herdr command failed verification: $stagedHerdr --version"
+                throw "Downloaded Vrspi command failed verification: $stagedVrspi --version"
             }
             $backupDir = $null
             if (Test-Path -LiteralPath $releaseDir) {
@@ -816,21 +816,21 @@ try {
                 if ($null -ne $backupDir -and -not (Test-Path -LiteralPath $releaseDir)) {
                     [System.IO.Directory]::Move($backupDir, $releaseDir)
                 }
-                Write-WarningStep "Windows could not activate the downloaded release. Another process may have a package file open, such as antivirus or indexing. No incomplete release was activated. Run herdr update again."
+                Write-WarningStep "Windows could not activate the downloaded release. Another process may have a package file open, such as antivirus or indexing. No incomplete release was activated. Run vrspi update again."
                 throw
             }
         }
 
-        $releaseHerdr = Join-Path $releaseDir "herdr.exe"
-        & $releaseHerdr --version *> $null
+        $releaseVrspi = Join-Path $releaseDir "vrspi.exe"
+        & $releaseVrspi --version *> $null
         if ($LASTEXITCODE -ne 0) {
-            throw "Installed Herdr command failed verification: $releaseHerdr --version"
+            throw "Installed Vrspi command failed verification: $releaseVrspi --version"
         }
         Get-ChildItem -LiteralPath $releasesDir -Force -Directory -Filter ".backup.$releaseName.*" -ErrorAction SilentlyContinue |
             ForEach-Object { Remove-DirectoryWithRetry -Path $_.FullName }
 
         Set-ManagedJunction -LinkPath $currentDir -TargetPath $releaseDir -ManagedTargetPrefix $releasesDir
-        Set-ManagedJunction -LinkPath $visibleBinDir -TargetPath $releaseDir -ManagedTargetPrefix $standaloneRoot -AllowLegacyHerdrBinMigration $allowLegacyVisibleBinMigration
+        Set-ManagedJunction -LinkPath $visibleBinDir -TargetPath $releaseDir -ManagedTargetPrefix $standaloneRoot -AllowLegacyVrspiBinMigration $allowLegacyVisibleBinMigration
 
         Remove-OldReleases -ReleasesDir $releasesDir -CurrentReleaseDir $releaseDir -Keep $Retain
     }
@@ -859,11 +859,11 @@ if ($newProcessPath -cne $env:Path) {
     $env:Path = $newProcessPath
 }
 
-$resolvedHerdr = Get-HerdrCommandSource
-if (-not (Test-PathStartsWith -Path $resolvedHerdr -Prefix $visibleBinDir)) {
-    Write-WarningStep "PowerShell still resolves herdr to $resolvedHerdr. Open a new PowerShell window or inspect PATH order manually."
+$resolvedVrspi = Get-VrspiCommandSource
+if (-not (Test-PathStartsWith -Path $resolvedVrspi -Prefix $visibleBinDir)) {
+    Write-WarningStep "PowerShell still resolves vrspi to $resolvedVrspi. Open a new PowerShell window or inspect PATH order manually."
 }
 
-Write-Step "Current PowerShell session: herdr"
-Write-Step "Future PowerShell windows: open a new PowerShell window and run: herdr"
-Write-Host "Herdr $versionIdentity installed successfully."
+Write-Step "Current PowerShell session: vrspi"
+Write-Step "Future PowerShell windows: open a new PowerShell window and run: vrspi"
+Write-Host "Vrspi $versionIdentity installed successfully."
