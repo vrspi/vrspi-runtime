@@ -1,0 +1,17 @@
+Vrspi Runtime
+Copyright 2026 Vrspi contributors
+
+This product is a fork of Herdr (https://github.com/herdrdev/herdr),
+Copyright the Herdr authors, licensed under the Apache License, Version 2.0.
+A copy of that licence is in the LICENSE file at the root of this repository.
+
+Vrspi Runtime modifies the original work. Changes include a rebranded product
+surface, company rooms with seats, mention routing and activation budgets, a
+task protocol with a durable journal, workspace visibility controls, and its
+own release and update channel. Vrspi is not affiliated with, endorsed by, or
+supported by the Herdr project, and "Herdr" is used only to identify the work
+this fork derives from.
+
+Vrspi Runtime vendors libghostty-vt; see vendor/libghostty-vt.vendor.json for
+the upstream source commit and vendor/libghostty-vt.patches.md for local
+patches.

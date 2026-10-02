@@ -227,3 +227,32 @@ release version:
 # Print default config
 default-config:
     cargo run --release --locked -- --default-config
+
+# Separate from `release` on purpose: upstream's recipe gates on ja and zh-cn
+# translations of every docs page, changelog parity and two website builds,
+# none of which this fork publishes. Kept additive so merging upstream stays
+# clean.
+#
+# Validate, bump the version, commit and tag a Vrspi release.
+release-vrspi version:
+    @printf '%s\n' '{{version}}' | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { \
+        echo "error: version must look like 0.9.0 without a v prefix"; \
+        exit 1; \
+    }
+    @git diff --quiet && git diff --cached --quiet || { \
+        echo "error: commit everything first; a release must come from a clean tree"; \
+        exit 1; \
+    }
+    @if git rev-parse "v{{version}}" >/dev/null 2>&1; then \
+        echo "error: tag v{{version}} already exists"; \
+        exit 1; \
+    fi
+    just check
+    @python3 -c "import pathlib, re; p = pathlib.Path('Cargo.toml'); s = p.read_text(); p.write_text(re.sub(r'^version = \"[^\"]+\"', 'version = \"{{version}}\"', s, count=1, flags=re.M))"
+    cargo check --quiet
+    git add Cargo.toml Cargo.lock
+    git commit -qm "release: v{{version}}"
+    git tag "v{{version}}"
+    @echo ""
+    @echo "tagged v{{version}}. publish it with:"
+    @echo "    git push origin master --tags"

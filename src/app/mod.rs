@@ -560,7 +560,7 @@ impl App {
         // Release notes on disk describe upstream Herdr releases; showing them
         // would advertise an update this fork must not install.
         let latest_release_notes =
-            crate::release_notes::load_latest().filter(|_| crate::brand::UPSTREAM_UPDATES_ENABLED);
+            crate::release_notes::load_latest().filter(|_| crate::brand::SELF_UPDATES_ENABLED);
         let update_available = latest_release_notes
             .as_ref()
             .filter(|notes| notes.preview)
@@ -569,7 +569,7 @@ impl App {
         let update_install_command = crate::update::update_install_command().to_string();
         let startup_product_announcement =
             crate::product_announcements::load_unseen_for_current_version()
-                .filter(|_| crate::brand::UPSTREAM_UPDATES_ENABLED);
+                .filter(|_| crate::brand::PRODUCT_ANNOUNCEMENTS_ENABLED);
 
         let mode = if config.should_show_onboarding() {
             state::Mode::Onboarding
@@ -793,7 +793,7 @@ impl App {
         // running binary out from under spawned test processes.
         let version_check_enabled =
             background_update_check_enabled(no_session, config.update.version_check)
-                && crate::brand::UPSTREAM_UPDATES_ENABLED;
+                && crate::brand::SELF_UPDATES_ENABLED;
         let manifest_check_enabled =
             background_update_check_enabled(no_session, config.update.manifest_check);
         if version_check_enabled {
@@ -3053,20 +3053,20 @@ mod tests {
     }
 
     #[test]
-    fn startup_ignores_saved_upstream_update_notes() {
+    fn startup_offers_a_newer_saved_release_as_an_update() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-preview-update-available");
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
-        // A far-future upstream release would normally surface as "update
-        // ready". Installing it would replace this build with upstream Herdr,
-        // so nothing advertises it.
+        // Notes for a newer release are now Vrspi's own, so they are a real
+        // update offer. While the endpoints pointed at upstream this had to be
+        // suppressed: installing it would have replaced Vrspi with Herdr.
         crate::release_notes::save_pending("99.99.99", "### Changed\n- One").unwrap();
 
         let app = test_app();
 
-        assert_eq!(app.state.update_available, None);
-        assert!(!app.state.latest_release_notes_available);
+        assert_eq!(app.state.update_available.as_deref(), Some("99.99.99"));
+        assert!(app.state.latest_release_notes_available);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -3082,15 +3082,17 @@ mod tests {
 
         let app = test_app();
 
+        // Older notes stay readable, but they are history, not an update: a
+        // version behind the running build must never be offered as one.
         assert_eq!(app.state.update_available, None);
-        assert!(!app.state.latest_release_notes_available);
+        assert!(app.state.latest_release_notes_available);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
-    fn startup_hides_pending_upstream_release_notes() {
+    fn startup_does_not_auto_open_notes_for_the_running_release() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-pending-release-notes-no-auto-open");
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -3105,9 +3107,12 @@ mod tests {
 
         let app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
 
+        // Available to read, but startup belongs to the user: notes for the
+        // version already running must not open themselves.
         assert_eq!(app.state.mode, Mode::Navigate);
         assert!(app.state.release_notes.is_none());
-        assert!(!app.state.latest_release_notes_available);
+        assert!(app.state.latest_release_notes_available);
+        assert_eq!(app.state.update_available, None);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -3142,7 +3147,9 @@ mod tests {
 
         let app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
 
-        // Upstream announcements describe Herdr, not this build.
+        // Announcements are a channel this fork does not publish, so the only
+        // ones on disk describe upstream Herdr. Neither it nor the notes saved
+        // beside it may take over startup.
         assert_eq!(app.state.mode, Mode::Navigate);
         assert!(app.state.product_announcement.is_none());
         assert!(app.state.release_notes.is_none());

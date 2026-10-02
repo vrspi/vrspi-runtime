@@ -8,13 +8,29 @@ use std::ffi::OsString;
 /// API error codes, and package-manager names all stay as they are.
 pub(crate) const PRODUCT_NAME: &str = "Vrspi";
 
-/// Whether the upstream Herdr updater runs.
+/// Whether the self-updater runs.
 ///
-/// The updater downloads upstream Herdr releases and replaces the running
-/// binary, which on this fork would silently swap Vrspi for plain Herdr. Its
-/// release notes and "update ready" prompts advertise those upstream releases
-/// too. Vrspi is updated by rebuilding it, so every update surface is off.
-pub(crate) const UPSTREAM_UPDATES_ENABLED: bool = false;
+/// This was off while the endpoints below still pointed at upstream Herdr:
+/// updating would have downloaded a Herdr release and silently replaced the
+/// running Vrspi with it. Now that they point at Vrspi's own manifest, the
+/// updater installs Vrspi releases and the surfaces are on.
+pub(crate) const SELF_UPDATES_ENABLED: bool = true;
+
+/// Whether a release may open a product announcement at startup.
+///
+/// Off, and separately from updates on purpose. Vrspi's manifest publishes no
+/// announcement field, so the only announcements that can be on disk are
+/// upstream Herdr's, saved while this machine ran Herdr. A stale one would
+/// seize the screen at startup to advertise a product this is not.
+pub(crate) const PRODUCT_ANNOUNCEMENTS_ENABLED: bool = false;
+
+/// Where `vrspi update` and the installer look for the published release.
+///
+/// Both read the same manifest on purpose, so an install and an update can
+/// never disagree about what the latest release is. Hosted on GitHub Pages
+/// rather than on vrspi.com: if the manifest is unreachable nobody can install
+/// *or* update, and Pages has no single VPS behind it.
+pub(crate) const UPDATE_MANIFEST_URL: &str = "https://vrspi.github.io/vrspi-runtime/latest.json";
 
 /// Returns a branded environment override, falling back to its Herdr-era
 /// spelling so existing sessions, integrations, and automation keep working.

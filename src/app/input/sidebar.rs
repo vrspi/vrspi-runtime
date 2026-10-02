@@ -246,7 +246,7 @@ impl AppState {
             labels.push("agent lobbies");
         }
         labels.push("company rooms");
-        if crate::brand::UPSTREAM_UPDATES_ENABLED {
+        if crate::brand::SELF_UPDATES_ENABLED {
             if self.update_available.is_some() {
                 labels.push("update ready");
             } else if self.latest_release_notes_available {
@@ -720,7 +720,9 @@ mod tests {
     }
 
     #[test]
-    fn a_pending_upstream_update_never_reaches_the_menu() {
+    fn a_pending_update_reaches_the_menu_as_the_only_offer() {
+        // "update ready" outranks "what's new": with both available the menu
+        // offers the action, not the reading material.
         let mut app = app_for_mouse_test();
         app.state.update_available = Some("0.3.2".into());
         app.state.latest_release_notes_available = true;
@@ -739,6 +741,7 @@ mod tests {
                 "keybinds",
                 "reload config",
                 "company rooms",
+                "update ready",
                 "detach"
             ]
         );
@@ -789,9 +792,10 @@ mod tests {
     }
 
     #[test]
-    fn upstream_release_notes_never_reach_the_menu() {
-        // Release notes describe upstream Herdr releases; even when the state
-        // says some are available, the menu does not advertise them.
+    fn the_menu_offers_release_notes_and_updates_when_they_exist() {
+        // Notes and updates are Vrspi's own now, so the menu advertises them.
+        // While the endpoints pointed upstream this had to stay hidden: taking
+        // the offer would have replaced Vrspi with Herdr.
         let mut app = app_for_mouse_test();
         app.state.latest_release_notes_available = true;
 
@@ -802,6 +806,7 @@ mod tests {
                 "keybinds",
                 "reload config",
                 "company rooms",
+                "what\'s new",
                 "detach"
             ]
         );

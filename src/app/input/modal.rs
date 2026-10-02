@@ -98,7 +98,7 @@ pub(super) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
         actions.push(GlobalMenuAction::AgentLobbies);
     }
     actions.push(GlobalMenuAction::CompanyRooms);
-    if crate::brand::UPSTREAM_UPDATES_ENABLED
+    if crate::brand::SELF_UPDATES_ENABLED
         && (state.update_available.is_some() || state.latest_release_notes_available)
     {
         actions.push(GlobalMenuAction::WhatsNew);
@@ -2124,9 +2124,8 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         state.latest_release_notes_available = true;
 
-        // Saved notes describe upstream Herdr releases, so the menu does not
-        // offer them. The viewer itself still works if it is ever re-enabled.
-        assert!(!global_menu_actions(&state).contains(&GlobalMenuAction::WhatsNew));
+        // The menu offers what it can open: saved notes are this fork's own.
+        assert!(global_menu_actions(&state).contains(&GlobalMenuAction::WhatsNew));
 
         apply_global_menu_action(&mut state, GlobalMenuAction::WhatsNew);
 

@@ -1,4 +1,35 @@
-# herdr
+# Vrspi Runtime
+
+A terminal runtime for coding agents: many agents, one session, each in its own
+pane, with company rooms so they can be given work and answer each other.
+
+A fork of [Herdr](https://github.com/herdrdev/herdr). See [NOTICE](NOTICE).
+
+## Install
+
+```sh
+curl -fsSL https://vrspi.github.io/vrspi-runtime/install.sh | sh
+```
+
+Installs the `vrspi` binary to `~/.local/bin` (override with
+`VRSPI_INSTALL_DIR`), verifying the published SHA-256 digest first. macOS and
+Linux, x86_64 and arm64.
+
+Update in place:
+
+```sh
+vrspi update
+```
+
+Prefer a browser? Grab a binary from
+[releases](https://github.com/vrspi/vrspi-runtime/releases) — but note macOS
+quarantines browser downloads, so the installer above is the smoother path.
+
+---
+
+<details>
+<summary>Upstream Herdr README</summary>
+
 
 
 <p align="center">
@@ -82,3 +113,5 @@ just check       # formatting, tests, and maintenance checks
 ## license
 
 Herdr is licensed under the [Apache License 2.0](LICENSE).
+
+</details>

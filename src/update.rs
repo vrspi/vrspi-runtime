@@ -22,9 +22,15 @@ use std::time::{Duration, Instant};
 use interprocess::local_socket::traits::Stream as _;
 use serde::{Deserialize, Deserializer};
 
-const STABLE_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
-const PREVIEW_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/preview.json";
-const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/herdr.json";
+const STABLE_UPDATE_MANIFEST_URL: &str = crate::brand::UPDATE_MANIFEST_URL;
+/// Vrspi publishes no preview channel yet, so the preview manifest is the
+/// stable one: a user who opts into preview tracks stable rather than hitting a
+/// URL that does not exist.
+const PREVIEW_UPDATE_MANIFEST_URL: &str = crate::brand::UPDATE_MANIFEST_URL;
+/// There is no Vrspi Homebrew formula. Kept pointing at a name that does not
+/// exist would make every install look package-managed; upstream's formula is
+/// deliberately not consulted, because installing it would replace Vrspi.
+const HOMEBREW_FORMULA_API_URL: &str = "";
 const HERDR_UPDATE_COMMAND: &str = concat!(env!("CARGO_BIN_NAME"), " update");
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade herdr";
@@ -566,6 +572,13 @@ fn homebrew_update_from_formula_json(
 }
 
 fn check_homebrew_latest() -> Result<Option<Version>, String> {
+    // Vrspi publishes no Homebrew formula. Without this guard the check would
+    // curl an empty URL on every pass and report a failure the user can do
+    // nothing about; upstream's formula is deliberately never consulted,
+    // because installing it would replace Vrspi with Herdr.
+    if HOMEBREW_FORMULA_API_URL.is_empty() {
+        return Ok(None);
+    }
     let current = Version::current();
 
     let output = crate::noninteractive_process::curl_command()
@@ -2077,7 +2090,7 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
 
 /// Manual self-update command (`herdr update`).
 pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
-    if !crate::brand::UPSTREAM_UPDATES_ENABLED {
+    if !crate::brand::SELF_UPDATES_ENABLED {
         return Err(format!(
             "self-update is disabled in {}: it would install upstream Herdr over this build. \
 Rebuild from source to update.",

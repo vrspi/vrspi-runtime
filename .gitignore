@@ -29,3 +29,6 @@ __pycache__/
 
 # browser automation tool artifacts
 .playwright-mcp/
+
+# local media projects (launch video renders, thumbnail and waveform caches)
+media/
