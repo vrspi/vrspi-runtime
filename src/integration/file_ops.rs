@@ -10,6 +10,12 @@ pub(crate) fn remove_file_if_exists(path: &Path) -> io::Result<bool> {
     }
 }
 
+/// The shell hook a Windows install replaces with its PowerShell sibling.
+#[cfg(windows)]
+pub(crate) fn legacy_bash_hook_path(hook_path: &Path) -> std::path::PathBuf {
+    hook_path.with_file_name("vrspi-agent-state.sh")
+}
+
 /// Hook files a previous install left behind that this one supersedes.
 ///
 /// Two kinds. The Herdr-era names, because the assets were renamed to
