@@ -32,8 +32,8 @@ const PREVIEW_UPDATE_MANIFEST_URL: &str = crate::brand::UPDATE_MANIFEST_URL;
 /// deliberately not consulted, because installing it would replace Vrspi.
 const HOMEBREW_FORMULA_API_URL: &str = "";
 const HERDR_UPDATE_COMMAND: &str = concat!(env!("CARGO_BIN_NAME"), " update");
-const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
-const MISE_UPDATE_COMMAND: &str = "mise upgrade herdr";
+const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade vrspi";
+const MISE_UPDATE_COMMAND: &str = "mise upgrade vrspi";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
 const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
 const FAKE_UPDATE_VERSION_ENV: &str = "HERDR_FAKE_UPDATE_VERSION";
@@ -790,16 +790,16 @@ fn install_windows_update_with_installer(
 #[cfg(windows)]
 fn windows_installed_herdr_exe_path() -> Result<PathBuf, String> {
     if let Some(install_dir) = env::var_os("HERDR_INSTALL_DIR").filter(|value| !value.is_empty()) {
-        return Ok(PathBuf::from(install_dir).join("herdr.exe"));
+        return Ok(PathBuf::from(install_dir).join("vrspi.exe"));
     }
 
     let local_app_data = env::var_os("LOCALAPPDATA")
-        .ok_or("LOCALAPPDATA is not set; cannot locate Herdr install")?;
+        .ok_or("LOCALAPPDATA is not set; cannot locate Vrspi install")?;
     Ok(PathBuf::from(local_app_data)
         .join("Programs")
         .join("Herdr")
         .join("bin")
-        .join("herdr.exe"))
+        .join("vrspi.exe"))
 }
 
 // ---------------------------------------------------------------------------
@@ -959,7 +959,7 @@ fn plan_running_server_updates(
         )
         .map_err(|err| {
             format!(
-                "failed to read status for herdr target {} at {}: {err}. stop it with `{}` and run `herdr update` again",
+                "failed to read status for vrspi target {} at {}: {err}. stop it with `{}` and run `vrspi update` again",
                 target.label,
                 target.socket_path.display(),
                 target.stop_command
@@ -998,7 +998,7 @@ fn plan_running_server_updates(
 
     if plans.is_empty() && target_client_protocol_server_is_running()? {
         return Err(format!(
-            "a herdr server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `herdr update` again",
+            "a vrspi server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `vrspi update` again",
             crate::session::local_stop_command()
         ));
     }
@@ -1117,7 +1117,7 @@ pub(crate) fn parse_self_update_args(args: &[String]) -> Result<SelfUpdateOption
         match arg.as_str() {
             "--handoff" => options.live_handoff = true,
             "--help" | "-h" => {
-                return Err("usage: herdr update [--handoff]".to_string());
+                return Err("usage: vrspi update [--handoff]".to_string());
             }
             _ => return Err(format!("unknown update option: {arg}")),
         }
@@ -1132,7 +1132,7 @@ fn prompt_to_stop_old_servers_before_update(
 ) -> Result<bool, String> {
     if !io::stdin().is_terminal() {
         return Err(
-            "one or more Herdr sessions must stop for this update. Stop running Herdr sessions when ready, then run `herdr update` again from an interactive terminal."
+            "one or more Vrspi sessions must stop for this update. Stop running Vrspi sessions when ready, then run `vrspi update` again from an interactive terminal."
                 .to_string(),
         );
     }
@@ -1260,7 +1260,7 @@ fn prompt_to_complete_plain_update(
     let (singular, plural) = target_group_nouns(&plans);
     let noun = if plans.len() == 1 { singular } else { plural };
     eprintln!(
-        "To complete the update, Herdr must stop {} running {}.",
+        "To complete the update, Vrspi must stop {} running {}.",
         plans.len(),
         noun
     );
@@ -1318,7 +1318,7 @@ fn print_running_session_update_summary(
     release: &ReleaseInfo,
     options: SelfUpdateOptions,
 ) {
-    eprintln!("running herdr targets:");
+    eprintln!("running vrspi targets:");
     for plan in plans {
         if options.live_handoff {
             let capability = if server_supports_live_handoff(&plan.server) {
@@ -1403,7 +1403,7 @@ fn prompt_to_stop_old_server_after_failed_handoff(
     eprintln!("  server: v{}", version_label(status.version.as_deref()));
     eprintln!("  installed: {}", release.label());
     eprintln!(
-        "you can keep using the old server, or stop it now so the next `herdr` start uses {}.",
+        "you can keep using the old server, or stop it now so the next `vrspi` start uses {}.",
         release.label()
     );
     eprintln!("stopping the old server will exit its pane processes.");
@@ -1470,13 +1470,13 @@ fn recover_failed_live_handoff_for_update(
         FailedHandoffServerState::NoServerResponding => {
             if let Some(command) = plan.attach_command() {
                 eprintln!(
-                    "no herdr server is responding for session {}. the binary was updated; run `{command}` to start {}.",
+                    "no vrspi server is responding for session {}. the binary was updated; run `{command}` to start {}.",
                     plan.label(),
                     release.label()
                 );
             } else {
                 eprintln!(
-                    "no herdr server is responding at {}. the binary was updated; restart with the same socket override to use {}.",
+                    "no vrspi server is responding at {}. the binary was updated; restart with the same socket override to use {}.",
                     plan.socket_path().display(),
                     release.label()
                 );
@@ -1676,7 +1676,7 @@ fn wait_for_server_shutdown_at(socket_path: &Path, timeout: Duration) -> Result<
 
 #[cfg(not(windows))]
 fn stop_running_server_for_update(plan: &RunningServerUpdatePlan) -> Result<(), String> {
-    eprintln!("stopping herdr {} {}...", plan.target_noun(), plan.label());
+    eprintln!("stopping vrspi {} {}...", plan.target_noun(), plan.label());
     stop_server_via_api_at(plan.socket_path(), SERVER_STOP_RESPONSE_TIMEOUT)?;
     wait_for_server_shutdown_at(plan.socket_path(), SERVER_HANDOFF_CONFIRM_TIMEOUT)?;
     Ok(())
@@ -1773,7 +1773,7 @@ fn print_running_session_update_outcomes(
     release: &ReleaseInfo,
 ) {
     if outcomes.is_empty() {
-        eprintln!("run herdr again.");
+        eprintln!("run vrspi again.");
         return;
     }
 
@@ -1805,7 +1805,7 @@ fn print_running_session_update_outcomes(
                         release.label()
                     ),
                     None => eprintln!(
-                        "Run `{}`, then restart Herdr with the same socket override when ready to use {}.",
+                        "Run `{}`, then restart Vrspi with the same socket override when ready to use {}.",
                         outcome.stop_command,
                         release.label()
                     ),
@@ -1882,16 +1882,16 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
             )
         }
         HOMEBREW_UPDATE_COMMAND => {
-            "detach, run `brew update && brew upgrade herdr`, then restart this Herdr session when ready".to_string()
+            "detach, run `brew update && brew upgrade vrspi`, then restart this Vrspi session when ready".to_string()
         }
         MISE_UPDATE_COMMAND => {
-            "detach, run `mise upgrade herdr`, then restart this Herdr session when ready"
+            "detach, run `mise upgrade vrspi`, then restart this Vrspi session when ready"
                 .to_string()
         }
         NIX_UPDATE_COMMAND => {
-            "detach, update through Nix, then restart this Herdr session when ready".to_string()
+            "detach, update through Nix, then restart this Vrspi session when ready".to_string()
         }
-        command => format!("detach, run `{command}`, then restart this Herdr session when ready"),
+        command => format!("detach, run `{command}`, then restart this Vrspi session when ready"),
     }
 }
 
@@ -1930,11 +1930,11 @@ pub(crate) fn preview_channel_rejection_for_current_install() -> Option<&'static
 pub(crate) fn package_manager_channel_update_guidance_for_current_install() -> Option<&'static str>
 {
     if is_homebrew_managed_install() {
-        Some("Use `brew update && brew upgrade herdr` to update Homebrew installs.")
+        Some("Use `brew update && brew upgrade vrspi` to update Homebrew installs.")
     } else if is_mise_managed_install() {
-        Some("Use `mise upgrade herdr` to update mise installs.")
+        Some("Use `mise upgrade vrspi` to update mise installs.")
     } else if is_nix_managed_install() {
-        Some("Update through Nix to update Nix-managed Herdr installs.")
+        Some("Update through Nix to update Nix-managed Vrspi installs.")
     } else {
         None
     }
@@ -1943,14 +1943,14 @@ pub(crate) fn package_manager_channel_update_guidance_for_current_install() -> O
 fn preview_channel_rejection_for_exe_path(path: &Path) -> Option<&'static str> {
     if is_homebrew_managed_exe_path_following_links(path) {
         Some(
-            "preview channel is only available for direct Herdr installs; Homebrew installs update through `brew update && brew upgrade herdr`",
+            "preview channel is only available for direct Vrspi installs; Homebrew installs update through `brew update && brew upgrade vrspi`",
         )
     } else if is_mise_managed_exe_path_following_links(path) {
         Some(
-            "preview channel is only available for direct Herdr installs; mise installs update through `mise upgrade herdr`",
+            "preview channel is only available for direct Vrspi installs; mise installs update through `mise upgrade vrspi`",
         )
     } else if is_nix_store_exe_path_following_links(path) {
-        Some("preview channel is only available for direct Herdr installs; Nix installs update through Nix")
+        Some("preview channel is only available for direct Vrspi installs; Nix installs update through Nix")
     } else {
         None
     }
@@ -2102,7 +2102,7 @@ Rebuild from source to update.",
     if is_homebrew_managed_install() {
         if channel == UpdateChannel::Preview {
             return Err(
-                "self-update is disabled for Homebrew installs; preview is only available for direct Herdr installs".into(),
+                "self-update is disabled for Homebrew installs; preview is only available for direct Vrspi installs".into(),
             );
         }
         return Err(format!(
@@ -2113,7 +2113,7 @@ Rebuild from source to update.",
     if is_mise_managed_install() {
         if channel == UpdateChannel::Preview {
             return Err(
-                "self-update is disabled for mise installs; preview is only available for direct Herdr installs".into(),
+                "self-update is disabled for mise installs; preview is only available for direct Vrspi installs".into(),
             );
         }
         return Err(format!(
@@ -2124,16 +2124,16 @@ Rebuild from source to update.",
     if is_nix_managed_install() {
         if channel == UpdateChannel::Preview {
             return Err(
-                "self-update is disabled for Nix installs; preview is only available for direct Herdr installs".into(),
+                "self-update is disabled for Nix installs; preview is only available for direct Vrspi installs".into(),
             );
         }
         return Err(
-            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Herdr".into(),
+            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Vrspi".into(),
         );
     }
 
     if running_inside_herdr() {
-        return Err("run `herdr update` outside herdr after detaching from the session".into());
+        return Err("run `vrspi update` outside vrspi after detaching from the session".into());
     }
 
     eprintln!("checking {} channel for updates...", channel.as_str());
@@ -2174,7 +2174,7 @@ Rebuild from source to update.",
         eprintln!("installed {}", release.label());
         print_outdated_integration_notice_with_updated_binary(&updated_exe);
         eprintln!(
-            "Restart any running Herdr sessions to use {}.",
+            "Restart any running Vrspi sessions to use {}.",
             release.label()
         );
     }
@@ -2192,8 +2192,8 @@ Rebuild from source to update.",
         if !options.live_handoff
             && !prompt_to_complete_plain_update(&server_update_decisions, &release)?
         {
-            eprintln!("Herdr was not updated.");
-            eprintln!("Stop running Herdr sessions when ready, then run `herdr update` again.");
+            eprintln!("Vrspi was not updated.");
+            eprintln!("Stop running Vrspi sessions when ready, then run `vrspi update` again.");
             return Ok(current);
         }
         install_downloaded_update(downloaded_update)?;
@@ -2460,7 +2460,7 @@ mod tests {
             build_id: None,
             commit: None,
             target_protocol,
-            download_url: "https://example.com/herdr".to_string(),
+            download_url: "https://example.com/vrspi".to_string(),
             sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         }
@@ -2540,7 +2540,7 @@ mod tests {
 
     #[test]
     fn non_homebrew_path_is_not_detected() {
-        let path = Path::new("/usr/local/bin/herdr");
+        let path = Path::new("/usr/local/bin/vrspi");
 
         assert!(!is_homebrew_managed_exe_path(path));
     }
@@ -2592,7 +2592,7 @@ mod tests {
 
     #[test]
     fn non_mise_install_path_is_not_detected() {
-        let path = Path::new("/home/user/.local/bin/herdr");
+        let path = Path::new("/home/user/.local/bin/vrspi");
 
         assert!(!is_mise_managed_exe_path(path));
     }
@@ -2654,7 +2654,7 @@ mod tests {
         let homebrew = Path::new("/opt/homebrew/Cellar/herdr/0.6.6/bin/herdr");
         let mise = Path::new("/home/user/.local/share/mise/installs/herdr/0.6.6/bin/herdr");
         let nix = Path::new("/nix/store/abc123-herdr-0.6.6/bin/herdr");
-        let direct = Path::new("/home/user/.local/bin/herdr");
+        let direct = Path::new("/home/user/.local/bin/vrspi");
 
         assert!(preview_channel_rejection_for_exe_path(homebrew)
             .is_some_and(|message| message.contains("Homebrew")));
@@ -2667,7 +2667,7 @@ mod tests {
 
     #[test]
     fn non_nix_store_path_is_not_detected() {
-        let path = Path::new("/usr/local/bin/herdr");
+        let path = Path::new("/usr/local/bin/vrspi");
 
         assert!(!is_nix_store_exe_path(path));
     }
@@ -2743,11 +2743,11 @@ mod tests {
         );
         assert_eq!(
             update_install_instruction(HOMEBREW_UPDATE_COMMAND),
-            "detach, run `brew update && brew upgrade herdr`, then restart this Herdr session when ready"
+            "detach, run `brew update && brew upgrade vrspi`, then restart this Vrspi session when ready"
         );
         assert_eq!(
             update_install_instruction(MISE_UPDATE_COMMAND),
-            "detach, run `mise upgrade herdr`, then restart this Herdr session when ready"
+            "detach, run `mise upgrade vrspi`, then restart this Vrspi session when ready"
         );
     }
 
@@ -2837,7 +2837,7 @@ mod tests {
             build_id: None,
             commit: None,
             target_protocol: Some(2),
-            download_url: "https://example.com/herdr".to_string(),
+            download_url: "https://example.com/vrspi".to_string(),
             sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
@@ -2872,8 +2872,8 @@ mod tests {
             target: RunningUpdateTarget {
                 name: Some("work".to_string()),
                 label: "work".to_string(),
-                stop_command: "herdr session stop work".to_string(),
-                attach_command: Some("herdr session attach work".to_string()),
+                stop_command: "vrspi session stop work".to_string(),
+                attach_command: Some("vrspi session attach work".to_string()),
                 socket_path: crate::session::api_socket_path_for(Some("work")),
                 client_socket_path: crate::session::client_socket_path_for(Some("work")),
                 must_be_running: true,
@@ -3106,7 +3106,7 @@ mod tests {
             build_id: None,
             commit: None,
             target_protocol: Some(3),
-            download_url: "https://example.com/herdr".to_string(),
+            download_url: "https://example.com/vrspi".to_string(),
             sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
@@ -3114,8 +3114,8 @@ mod tests {
             target: RunningUpdateTarget {
                 name: Some("work".to_string()),
                 label: "work".to_string(),
-                stop_command: "herdr session stop work".to_string(),
-                attach_command: Some("herdr session attach work".to_string()),
+                stop_command: "vrspi session stop work".to_string(),
+                attach_command: Some("vrspi session attach work".to_string()),
                 socket_path: crate::session::api_socket_path_for(Some("work")),
                 client_socket_path: crate::session::client_socket_path_for(Some("work")),
                 must_be_running: true,
@@ -3244,7 +3244,7 @@ mod tests {
             build_id: None,
             commit: None,
             target_protocol: Some(77),
-            download_url: "https://example.com/herdr".to_string(),
+            download_url: "https://example.com/vrspi".to_string(),
             sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
@@ -3509,7 +3509,7 @@ mod tests {
                 "version": "99.99.99",
                 "notes": "### Changed\n- One",
                 "assets": {{
-                    "{asset_key}": "https://example.com/herdr"
+                    "{asset_key}": "https://example.com/vrspi"
                 }}
             }}"####
         );
@@ -3536,7 +3536,7 @@ mod tests {
                 }},
                 "assets": {{
                     "{asset_key}": {{
-                        "url": "https://example.com/herdr",
+                        "url": "https://example.com/vrspi",
                         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                     }}
                 }}
@@ -3550,7 +3550,7 @@ mod tests {
             .expect("release info");
 
         assert_eq!(release.version, Version::parse("99.99.99").unwrap());
-        assert_eq!(release.download_url, "https://example.com/herdr");
+        assert_eq!(release.download_url, "https://example.com/vrspi");
     }
 
     #[test]

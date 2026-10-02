@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.9.1] - 2026-10-02
+
+### Fixed
+- User-facing messages in the CLI and updater said "herdr" and "Herdr",
+  including telling users to run `herdr update`, a command this build does not
+  provide. Over a hundred strings across usage text, update prompts and error
+  messages now name Vrspi. Package-manager names are deliberately unchanged:
+  the Homebrew and mise packages are called `herdr`, and so are the install
+  paths the updater matches to refuse self-updating a package-managed binary.
+
 ## [0.9.0] - 2026-10-02
 
 The first Vrspi release. Vrspi Runtime is a fork of
