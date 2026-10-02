@@ -261,6 +261,7 @@ jobs:
           WORK="$RUNNER_TEMP/manifest"
           cp website/install.sh "$WORK/install.sh"
           cp website/install.ps1 "$WORK/install.ps1"
+          cp website/landing.html "$WORK/index.html"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # An orphan branch holding only what is served, so the published site
@@ -271,8 +272,9 @@ jobs:
           cp "$WORK/latest.json" latest.json
           cp "$WORK/install.sh" install.sh
           cp "$WORK/install.ps1" install.ps1
+          cp "$WORK/index.html" index.html
           chmod +x install.sh
           touch .nojekyll
-          git add -A latest.json install.sh install.ps1 .nojekyll
+          git add -A latest.json install.sh install.ps1 index.html .nojekyll
           git commit -qm "release: publish manifest for ${GITHUB_REF_NAME}"
           git push -f origin HEAD:gh-pages
