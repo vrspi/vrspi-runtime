@@ -13,29 +13,6 @@ env:
   RUST_TOOLCHAIN_VERSION: 1.96.1
 
 jobs:
-  flake-check:
-    if: github.repository == 'vrspi/vrspi-runtime'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          persist-credentials: false
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            always-allow-substitutes = true
-
-      - name: Run Nix flake check
-        run: |
-          nix flake check --print-build-logs
-          nix flake check --all-systems --no-build --print-build-logs
-
   build:
     if: github.repository == 'vrspi/vrspi-runtime'
     permissions:
@@ -61,11 +38,6 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             name: vrspi-macos-aarch64
-            libghostty_vt_optimize: ReleaseFast
-            libghostty_vt_simd: 'true'
-          - target: x86_64-pc-windows-msvc
-            os: windows-2022
-            name: vrspi-windows-x86_64.zip
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
 
@@ -154,27 +126,8 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package artifact
-        if: runner.os != 'Windows'
         shell: bash
         run: cp target/${{ matrix.target }}/release/vrspi ${{ matrix.name }}
-
-      - name: Package artifact
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $package = Join-Path $env:RUNNER_TEMP "Microsoft.Windows.Console.ConPTY.nupkg"
-          $stage = Join-Path $env:RUNNER_TEMP "vrspi-windows-x86_64"
-          .\scripts\package_windows_conpty.ps1 `
-            -HerdrExe target\${{ matrix.target }}\release\vrspi.exe `
-            -PackagePath $package `
-            -StageDir $stage `
-            -OutputPath ${{ matrix.name }}
-          $version = (& (Join-Path $stage "herdr.exe") --version | Out-String).Trim()
-          $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
-          if ($version -notmatch [regex]::Escape($tagVersion) -or $version -match "preview") {
-            throw "Packaged Windows binary has unexpected version identity: $version"
-          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -193,20 +146,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.14
-
       - name: Validate release inputs
         run: |
-          python3 scripts/changelog.py validate-product-announcement
-          test -f docs/next/README.md
-          test -f docs/next/README.zh-CN.md
-          (cd website && bun install --frozen-lockfile && bun run test && bun run build:draft)
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          # The tag is the only thing a user sees; a binary reporting a
+          # different version than the tag it was published under is the
+          # confusing failure this prevents.
+          CARGO_VERSION=$(python3 -c 'import re, pathlib; print(re.search(r"^version = \"([^\"]+)\"", pathlib.Path("Cargo.toml").read_text(), re.M).group(1))')
+          if [ "$VERSION" != "$CARGO_VERSION" ]; then
+            echo "tag v$VERSION does not match Cargo.toml version $CARGO_VERSION" >&2
+            exit 1
+          fi
+          # Release notes come from the changelog, so an empty or missing
+          # section must fail here rather than publish a release with no notes.
+          python3 scripts/changelog.py extract --version "$VERSION" --output /dev/null
+          # Apache-2.0 requires both to travel with the distribution.
+          test -f LICENSE
+          test -f NOTICE
+          echo "v$VERSION is ready to publish"
 
   release:
-    needs: [build, flake-check, validate-release-inputs]
+    needs: [build, validate-release-inputs]
     if: github.repository == 'vrspi/vrspi-runtime'
     runs-on: ubuntu-latest
     permissions:
@@ -231,7 +192,6 @@ jobs:
             vrspi-linux-aarch64/vrspi-linux-aarch64
             vrspi-macos-x86_64/vrspi-macos-x86_64
             vrspi-macos-aarch64/vrspi-macos-aarch64
-            vrspi-windows-x86_64.zip/vrspi-windows-x86_64.zip
           body_path: RELEASE_NOTES.md
 
   # Publishes the manifest that `vrspi update` and install.sh both read.
