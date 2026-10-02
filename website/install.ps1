@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$Channel = $env:HERDR_CHANNEL,
+    [string]$Channel = $(if ($env:VRSPI_CHANNEL) { $env:VRSPI_CHANNEL } else { $env:HERDR_CHANNEL }),
     [string]$ManifestUrl = $env:HERDR_MANIFEST_URL,
-    [string]$InstallDir = $env:HERDR_INSTALL_DIR,
+    [string]$InstallDir = $(if ($env:VRSPI_INSTALL_DIR) { $env:VRSPI_INSTALL_DIR } else { $env:HERDR_INSTALL_DIR }),
     [string]$ExpectedBuildId = $env:HERDR_EXPECTED_BUILD_ID,
     [int]$Retain = 3,
     [string]$LocalPackagePath,
@@ -17,7 +17,7 @@ $ProgressPreference = "SilentlyContinue"
 
 $channelWasExplicit = -not [string]::IsNullOrWhiteSpace($Channel)
 if ($channelWasExplicit -and $Channel -notin @("stable", "preview")) {
-    Write-Error "Invalid Herdr channel '$Channel'. Use 'stable' or 'preview'."
+    Write-Error "Invalid Vrspi channel '$Channel'. Use 'stable' or 'preview'."
     exit 1
 }
 
@@ -47,7 +47,7 @@ function Write-WarningStep {
 }
 
 function Get-HerdrCommandSource {
-    $existing = Get-Command herdr -ErrorAction SilentlyContinue
+    $existing = Get-Command vrspi -ErrorAction SilentlyContinue
     if ($null -eq $existing) {
         return $null
     }
@@ -342,7 +342,7 @@ function Test-HerdrReleaseComplete {
     if (-not (Test-RegularDirectory -Path $ReleaseDir)) {
         return $false
     }
-    $herdrExe = Join-Path $ReleaseDir "herdr.exe"
+    $herdrExe = Join-Path $ReleaseDir "vrspi.exe"
     if (-not (Test-RegularFile -Path $herdrExe)) {
         return $false
     }
@@ -579,7 +579,7 @@ function Move-LegacyHerdrBinDirectory {
         return $false
     }
 
-    if (($entries | Where-Object { $_.Name -ieq "herdr.exe" } | Select-Object -First 1) -eq $null) {
+    if (($entries | Where-Object { $_.Name -ieq "vrspi.exe" } | Select-Object -First 1) -eq $null) {
         return $false
     }
 
@@ -734,9 +734,9 @@ if ($useLocalPackage) {
 
     if ([string]::IsNullOrWhiteSpace($ManifestUrl)) {
         $ManifestUrl = if ($Channel -eq "preview") {
-            "https://herdr.dev/preview.json"
+            "https://vrspi.github.io/vrspi-runtime/latest.json"
         } else {
-            "https://herdr.dev/latest.json"
+            "https://vrspi.github.io/vrspi-runtime/latest.json"
         }
     }
 
@@ -752,15 +752,13 @@ if ($useLocalPackage) {
     } else {
         $assetsProperty.Value.PSObject.Properties[$target]
     }
-    if ($null -eq $assetProperty -and
-        -not $channelWasExplicit -and
-        $Channel -eq "stable" -and
-        $ManifestUrl -match "/latest\.json$") {
-        Write-WarningStep "The stable manifest does not include Windows yet; using preview during the stable-channel rollout."
-        $Channel = "preview"
-        $ManifestUrl = $ManifestUrl.Substring(0, $ManifestUrl.Length - "latest.json".Length) + "preview.json"
-        Write-Step "Fetching Herdr preview manifest"
-        $manifest = Get-RemoteManifest -Uri $ManifestUrl
+    # Upstream fell back to a preview manifest while Windows was not yet in
+    # stable. Vrspi publishes one manifest and no preview channel, so a missing
+    # Windows asset is a real "no build for your platform" rather than a reason
+    # to fetch a URL that does not exist.
+    if ($null -eq $assetProperty) {
+        Write-Error "This release has no Windows build. See https://github.com/vrspi/vrspi-runtime/releases"
+        exit 1
     }
     $asset = Get-ManifestAsset -Manifest $manifest -Target $target
     if (-not [string]::IsNullOrWhiteSpace($ExpectedBuildId) -and [string]$manifest.build_id -ne $ExpectedBuildId) {

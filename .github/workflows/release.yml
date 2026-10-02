@@ -40,6 +40,11 @@ jobs:
             name: vrspi-macos-aarch64
             libghostty_vt_optimize: ReleaseFast
             libghostty_vt_simd: 'true'
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            name: vrspi-windows-x86_64.zip
+            libghostty_vt_optimize: ReleaseFast
+            libghostty_vt_simd: 'true'
 
     runs-on: ${{ matrix.os }}
     env:
@@ -126,8 +131,30 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package artifact
+        if: runner.os != 'Windows'
         shell: bash
         run: cp target/${{ matrix.target }}/release/vrspi ${{ matrix.name }}
+
+      - name: Package artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $package = Join-Path $env:RUNNER_TEMP "Microsoft.Windows.Console.ConPTY.nupkg"
+          $stage = Join-Path $env:RUNNER_TEMP "vrspi-windows-x86_64"
+          .\scripts\package_windows_conpty.ps1 `
+            -HerdrExe target\${{ matrix.target }}\release\vrspi.exe `
+            -PackagePath $package `
+            -StageDir $stage `
+            -OutputPath ${{ matrix.name }}
+          # The staged executable is vrspi.exe, which is also what the installer
+          # looks for; upstream checked a herdr.exe this fork does not build, so
+          # this step used to fail and take the release with it.
+          $version = (& (Join-Path $stage "vrspi.exe") --version | Out-String).Trim()
+          $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($version -notmatch [regex]::Escape($tagVersion) -or $version -match "preview") {
+            throw "Packaged Windows binary has unexpected version identity: $version"
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -192,6 +219,7 @@ jobs:
             vrspi-linux-aarch64/vrspi-linux-aarch64
             vrspi-macos-x86_64/vrspi-macos-x86_64
             vrspi-macos-aarch64/vrspi-macos-aarch64
+            vrspi-windows-x86_64.zip/vrspi-windows-x86_64.zip
           body_path: RELEASE_NOTES.md
 
   # Publishes the manifest that `vrspi update` and install.sh both read.
@@ -232,6 +260,7 @@ jobs:
           set -euo pipefail
           WORK="$RUNNER_TEMP/manifest"
           cp website/install.sh "$WORK/install.sh"
+          cp website/install.ps1 "$WORK/install.ps1"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # An orphan branch holding only what is served, so the published site
@@ -241,8 +270,9 @@ jobs:
           find . -maxdepth 1 ! -name . ! -name .git -exec rm -rf {} +
           cp "$WORK/latest.json" latest.json
           cp "$WORK/install.sh" install.sh
+          cp "$WORK/install.ps1" install.ps1
           chmod +x install.sh
           touch .nojekyll
-          git add -A latest.json install.sh .nojekyll
+          git add -A latest.json install.sh install.ps1 .nojekyll
           git commit -qm "release: publish manifest for ${GITHUB_REF_NAME}"
           git push -f origin HEAD:gh-pages
