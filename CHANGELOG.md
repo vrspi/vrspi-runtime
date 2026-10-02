@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## [0.9.2] - 2026-10-02
+
+### Added
+- Windows x86_64 builds. The release now publishes `vrspi-windows-x86_64.zip`
+  containing `vrspi.exe` and its own ConPTY runtime, so panes do not depend on
+  the console version Windows happens to ship. Install in PowerShell with
+  `irm https://vrspi.github.io/vrspi-runtime/install.ps1 | iex`.
+
+### Fixed
+- The Windows packaging step staged the executable as `herdr.exe` and then ran
+  a `herdr.exe` this fork does not build, so it failed and would have taken
+  the whole release with it. 0.9.0 and 0.9.1 shipped without Windows for that
+  reason.
+- The Windows installer no longer falls back to a preview manifest when a
+  release has no Windows asset. Vrspi publishes one manifest, so a missing
+  asset now reports "no build for your platform" instead of fetching a URL
+  that does not exist.
+
 ## [0.9.1] - 2026-10-02
 
 ### Fixed

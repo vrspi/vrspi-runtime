@@ -7,13 +7,25 @@ A fork of [Herdr](https://github.com/herdrdev/herdr). See [NOTICE](NOTICE).
 
 ## Install
 
+**macOS and Linux** (x86_64 and arm64):
+
 ```sh
 curl -fsSL https://vrspi.github.io/vrspi-runtime/install.sh | sh
 ```
 
 Installs the `vrspi` binary to `~/.local/bin` (override with
-`VRSPI_INSTALL_DIR`), verifying the published SHA-256 digest first. macOS and
-Linux, x86_64 and arm64.
+`VRSPI_INSTALL_DIR`).
+
+**Windows** (x86_64), in PowerShell:
+
+```powershell
+irm https://vrspi.github.io/vrspi-runtime/install.ps1 | iex
+```
+
+Installs `vrspi.exe` with its own ConPTY runtime, so it does not depend on the
+console version Windows happens to ship.
+
+Both verify the published SHA-256 digest before putting anything on your PATH.
 
 Update in place:
 
