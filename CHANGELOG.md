@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## [0.9.4] - 2026-10-02
+
+### Fixed
+- A room message that mentioned an agent, and agent-to-agent mail, arrived in
+  the agent's input as a pasted draft and waited for someone to press Enter.
+  The prompt and its Enter were sent in one write, which agents read as a
+  single paste. Enter now follows the text separately, as `vrspi agent prompt`
+  already did, so the agent submits it. This failed every time on Windows.
+- The tab bar is visible again on a fresh install. Vrspi had changed the
+  default of `ui.hide_tab_bar_when_single_tab` to `true`, so a workspace with
+  one tab showed no tabs at all. Set it to `true` to keep the old behaviour.
+
+### Changed
+- Agent integrations install as `vrspi-agent-state.*`. Reinstalling them
+  removes the Herdr-era `herdr-agent-state.*` files and their registrations,
+  which otherwise kept firing and reported each pane twice.
+
 ## [0.9.3] - 2026-10-02
 
 ### Fixed
