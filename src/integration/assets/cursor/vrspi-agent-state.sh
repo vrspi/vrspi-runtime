@@ -1,12 +1,12 @@
 #!/bin/sh
-# managed by herdr; reinstalling the integration replaces this file.
-# HERDR_INTEGRATION_ID=cursor
-# HERDR_INTEGRATION_VERSION=1
+# managed by vrspi; reinstalling the integration replaces this file.
+# VRSPI_INTEGRATION_ID=cursor
+# VRSPI_INTEGRATION_VERSION=1
 
 [ "${1:-}" = "session" ] || exit 0
-[ "${HERDR_ENV:-}" = "1" ] || exit 0
-[ -n "${HERDR_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HERDR_PANE_ID:-}" ] || exit 0
+[ "${VRSPI_ENV:-${HERDR_ENV:-}}" = "1" ] || exit 0
+[ -n "${VRSPI_SOCKET_PATH:-${HERDR_SOCKET_PATH:-}}" ] || exit 0
+[ -n "${VRSPI_PANE_ID:-${HERDR_PANE_ID:-}}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 python3 -c '
@@ -38,11 +38,11 @@ if session_id is None:
 
 seq = time.time_ns()
 request = json.dumps({
-    "id": f"herdr:cursor:{seq}",
+    "id": f"vrspi:cursor:{seq}",
     "method": "pane.report_agent_session",
     "params": {
         "pane_id": os.environ["HERDR_PANE_ID"],
-        "source": "herdr:cursor",
+        "source": "vrspi:cursor",
         "agent": "cursor",
         "seq": seq,
         "agent_session_id": session_id,

@@ -8,6 +8,7 @@ use super::command::{hook_command, legacy_bash_hook_command};
 use super::file_ops::legacy_bash_hook_path;
 use super::{
     HERMES_PLUGIN_INSTALL_NAME, KIMI_CONFIG_BLOCK_BEGIN, KIMI_CONFIG_BLOCK_END, KIMI_HOOK_EVENTS,
+    LEGACY_HERMES_PLUGIN_INSTALL_NAME,
 };
 
 pub(crate) fn ensure_hooks_object<'a>(
@@ -387,8 +388,27 @@ pub(crate) fn push_unique_command(commands: &mut Vec<String>, command: String) {
 }
 
 pub(crate) fn is_matching_command_hook(hook: &Value, command: &str) -> bool {
-    hook.get("type").and_then(Value::as_str) == Some("command")
-        && hook.get("command").and_then(Value::as_str) == Some(command)
+    if hook.get("type").and_then(Value::as_str) != Some("command") {
+        return false;
+    }
+    let Some(existing) = hook.get("command").and_then(Value::as_str) else {
+        return false;
+    };
+    existing == command || is_superseded_hook_command(existing, command)
+}
+
+/// Whether `existing` registers this same hook under its Herdr-era name.
+///
+/// The assets were renamed to `vrspi-agent-state.*`, so installing leaves the
+/// old registration behind unless it is matched here: the agent would then run
+/// a hook file that this install just deleted, on every event, forever.
+///
+/// Matched by the file it names rather than by string equality, because the two
+/// registrations are not written the same way. The current one is wrapped and
+/// quoted (`bash '/path/vrspi-agent-state.sh' session`) while a Herdr-era entry
+/// is a bare path, so comparing whole commands never matches.
+fn is_superseded_hook_command(existing: &str, command: &str) -> bool {
+    command.contains("vrspi-agent-state") && existing.contains("herdr-agent-state")
 }
 
 pub(crate) fn ensure_hermes_plugin_enabled(content: &str) -> String {
@@ -410,7 +430,7 @@ pub(crate) fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> Stri
         if !result.is_empty() {
             result.push('\n');
         }
-        result.push_str("plugins:\n  enabled:\n    - herdr-agent-state\n");
+        result.push_str("plugins:\n  enabled:\n    - vrspi-agent-state\n");
         return result;
     };
 
@@ -432,7 +452,7 @@ pub(crate) fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> Stri
         if line == "enabled: []" || line == "enabled: [] # herdr" {
             if enabled {
                 lines[enabled_index] = "  enabled:".to_string();
-                lines.insert(enabled_index + 1, "    - herdr-agent-state".to_string());
+                lines.insert(enabled_index + 1, "    - vrspi-agent-state".to_string());
             }
             return join_yaml_lines(lines, trailing_newline);
         }
@@ -447,12 +467,15 @@ pub(crate) fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> Stri
             .unwrap_or(plugins_end);
         let existing_item_index = lines[list_start..list_end]
             .iter()
-            .position(|line| yaml_list_item_matches(line, HERMES_PLUGIN_INSTALL_NAME))
+            .position(|line| {
+                yaml_list_item_matches(line, HERMES_PLUGIN_INSTALL_NAME)
+                    || yaml_list_item_matches(line, LEGACY_HERMES_PLUGIN_INSTALL_NAME)
+            })
             .map(|offset| list_start + offset);
 
         match (enabled, existing_item_index) {
             (true, Some(_)) | (false, None) => return content.to_string(),
-            (true, None) => lines.insert(list_start, "    - herdr-agent-state".to_string()),
+            (true, None) => lines.insert(list_start, "    - vrspi-agent-state".to_string()),
             (false, Some(index)) => {
                 lines.remove(index);
             }
@@ -461,9 +484,9 @@ pub(crate) fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> Stri
     }
 
     if let Some(mut items) = plugins_inline_items {
-        let existing_item_index = items
-            .iter()
-            .position(|item| item == HERMES_PLUGIN_INSTALL_NAME);
+        let existing_item_index = items.iter().position(|item| {
+            item == HERMES_PLUGIN_INSTALL_NAME || item == LEGACY_HERMES_PLUGIN_INSTALL_NAME
+        });
 
         match (enabled, existing_item_index) {
             (true, Some(_)) | (false, None) => return content.to_string(),
@@ -486,7 +509,7 @@ pub(crate) fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> Stri
 
         match (enabled, existing_item_index) {
             (true, Some(_)) | (false, None) => return content.to_string(),
-            (true, None) => lines.insert(flat_list_start, "  - herdr-agent-state".to_string()),
+            (true, None) => lines.insert(flat_list_start, "  - vrspi-agent-state".to_string()),
             (false, Some(index)) => {
                 lines.remove(index);
             }
@@ -496,7 +519,7 @@ pub(crate) fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> Stri
 
     if enabled {
         lines.insert(plugins_index + 1, "  enabled:".to_string());
-        lines.insert(plugins_index + 2, "    - herdr-agent-state".to_string());
+        lines.insert(plugins_index + 2, "    - vrspi-agent-state".to_string());
         return join_yaml_lines(lines, trailing_newline);
     }
 

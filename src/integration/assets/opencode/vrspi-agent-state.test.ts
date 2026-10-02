@@ -43,15 +43,15 @@ beforeEach(() => {
   clients.length = 0;
   requestWaiters.length = 0;
   autoAcknowledge = true;
-  process.env.HERDR_ENV = "1";
-  process.env.HERDR_SOCKET_PATH = "test.sock";
-  process.env.HERDR_PANE_ID = "test:p1";
+  process.env.VRSPI_ENV = "1";
+  process.env.VRSPI_SOCKET_PATH = "test.sock";
+  process.env.VRSPI_PANE_ID = "test:p1";
 });
 
 async function loadPlugin() {
   importCounter += 1;
-  const { HerdrAgentStatePlugin } = await import(`./herdr-agent-state.js?test=${importCounter}`);
-  return HerdrAgentStatePlugin();
+  const { VrspiAgentStatePlugin } = await import(`./vrspi-agent-state.js?test=${importCounter}`);
+  return VrspiAgentStatePlugin();
 }
 
 function waitForNextRequest(): Promise<void> {

@@ -25,7 +25,7 @@ use super::env::{
     opencode_dir, pi_extension_dir, qodercli_dir, qwen_dir,
 };
 use super::file_ops::{
-    make_executable, remove_dir_all_if_exists, remove_file_if_exists, remove_legacy_bash_hook_file,
+    make_executable, remove_dir_all_if_exists, remove_file_if_exists, remove_superseded_hook_files,
 };
 use super::opencode_config::{
     add_tui_plugin, remove_tui_plugin, tui_config_path, validate_tui_plugin_config,
@@ -110,7 +110,7 @@ pub(crate) fn remove_legacy_pi_extension_from_omp_dir(dir: &Path) -> io::Result<
     }
 
     let content = fs::read_to_string(&legacy_path)?;
-    if content.contains("HERDR_INTEGRATION_ID=pi") {
+    if content.contains("VRSPI_INTEGRATION_ID=pi") {
         fs::remove_file(legacy_path)?;
         return Ok(true);
     }
@@ -141,7 +141,7 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
         "{}".to_string()
     };
     let updated_settings = install_claude_settings(&existing_settings, &settings_path, &hook_path)?;
-    remove_legacy_bash_hook_file(&hook_path)?;
+    remove_superseded_hook_files(&hook_path)?;
 
     if updated_settings != existing_settings {
         fs::write(&settings_path, updated_settings)?;
@@ -194,7 +194,7 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
         10,
         None,
     )?;
-    remove_legacy_bash_hook_file(&hook_path)?;
+    remove_superseded_hook_files(&hook_path)?;
 
     fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
 
@@ -242,7 +242,7 @@ pub(crate) fn install_kimi() -> io::Result<KimiInstallPaths> {
     if new_config != existing_config {
         fs::write(&config_path, new_config)?;
     }
-    remove_legacy_bash_hook_file(&hook_path)?;
+    remove_superseded_hook_files(&hook_path)?;
 
     Ok(KimiInstallPaths {
         hook_path,
@@ -294,7 +294,7 @@ pub(crate) fn install_copilot() -> io::Result<CopilotInstallPaths> {
     for event in COPILOT_HOOK_EVENTS {
         ensure_direct_command_hook(hooks, event, command.clone(), 10, None)?;
     }
-    remove_legacy_bash_hook_file(&hook_path)?;
+    remove_superseded_hook_files(&hook_path)?;
 
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
@@ -350,7 +350,7 @@ pub(crate) fn install_devin() -> io::Result<DevinInstallPaths> {
             None,
         )?;
     }
-    remove_legacy_bash_hook_file(&hook_path)?;
+    remove_superseded_hook_files(&hook_path)?;
 
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
@@ -410,7 +410,7 @@ pub(crate) fn install_droid() -> io::Result<DroidInstallPaths> {
             None,
         )?;
     }
-    remove_legacy_bash_hook_file(&hook_path)?;
+    remove_superseded_hook_files(&hook_path)?;
 
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
@@ -567,7 +567,7 @@ pub(crate) fn uninstall_claude() -> io::Result<ClaudeUninstallResult> {
     }
 
     let removed_hook_file =
-        remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+        remove_file_if_exists(&hook_path)? | remove_superseded_hook_files(&hook_path)?;
 
     Ok(ClaudeUninstallResult {
         hook_path,
@@ -614,7 +614,7 @@ pub(crate) fn uninstall_codex() -> io::Result<CodexUninstallResult> {
     }
 
     let removed_hook_file =
-        remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+        remove_file_if_exists(&hook_path)? | remove_superseded_hook_files(&hook_path)?;
 
     Ok(CodexUninstallResult {
         hook_path,
@@ -641,7 +641,7 @@ pub(crate) fn uninstall_kimi() -> io::Result<KimiUninstallResult> {
     }
 
     let removed_hook_file =
-        remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+        remove_file_if_exists(&hook_path)? | remove_superseded_hook_files(&hook_path)?;
 
     Ok(KimiUninstallResult {
         hook_path,
@@ -686,7 +686,7 @@ pub(crate) fn uninstall_copilot() -> io::Result<CopilotUninstallResult> {
     }
 
     let removed_hook_file =
-        remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+        remove_file_if_exists(&hook_path)? | remove_superseded_hook_files(&hook_path)?;
 
     Ok(CopilotUninstallResult {
         hook_path,
@@ -731,7 +731,7 @@ pub(crate) fn uninstall_devin() -> io::Result<DevinUninstallResult> {
     }
 
     let removed_hook_file =
-        remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+        remove_file_if_exists(&hook_path)? | remove_superseded_hook_files(&hook_path)?;
 
     Ok(DevinUninstallResult {
         hook_path,
@@ -803,7 +803,7 @@ pub(crate) fn uninstall_droid() -> io::Result<DroidUninstallResult> {
     }
 
     let removed_hook_file =
-        remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+        remove_file_if_exists(&hook_path)? | remove_superseded_hook_files(&hook_path)?;
 
     Ok(DroidUninstallResult {
         hook_path,
@@ -939,7 +939,7 @@ pub(crate) fn install_qodercli() -> io::Result<QodercliInstallPaths> {
             Some("*"),
         )?;
     }
-    remove_legacy_bash_hook_file(&hook_path)?;
+    remove_superseded_hook_files(&hook_path)?;
 
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
@@ -1094,7 +1094,7 @@ pub(crate) fn uninstall_qodercli() -> io::Result<QodercliUninstallResult> {
     }
 
     let removed_hook_file =
-        remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+        remove_file_if_exists(&hook_path)? | remove_superseded_hook_files(&hook_path)?;
 
     Ok(QodercliUninstallResult {
         hook_path,

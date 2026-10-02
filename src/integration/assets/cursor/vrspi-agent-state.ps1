@@ -1,6 +1,6 @@
-# managed by herdr; reinstalling the integration replaces this file.
-# HERDR_INTEGRATION_ID=cursor
-# HERDR_INTEGRATION_VERSION=1
+# managed by vrspi; reinstalling the integration replaces this file.
+# VRSPI_INTEGRATION_ID=cursor
+# VRSPI_INTEGRATION_VERSION=1
 
 param([string]$Action = "")
 
@@ -10,8 +10,8 @@ function Exit-Hook {
 }
 
 if ($Action -ne "session") { Exit-Hook }
-if ($env:HERDR_ENV -ne "1") { Exit-Hook }
-if ([string]::IsNullOrWhiteSpace($env:HERDR_PANE_ID)) { Exit-Hook }
+if ($(if ($env:VRSPI_ENV) { $env:VRSPI_ENV } else { $env:HERDR_ENV }) -ne "1") { Exit-Hook }
+if ([string]::IsNullOrWhiteSpace($(if ($env:VRSPI_PANE_ID) { $env:VRSPI_PANE_ID } else { $env:HERDR_PANE_ID }))) { Exit-Hook }
 
 $inputText = [Console]::In.ReadToEnd()
 $jsonStart = $inputText.IndexOf("{")
@@ -39,9 +39,9 @@ foreach ($name in @("session_id", "sessionId", "conversation_id", "conversationI
 if ([string]::IsNullOrWhiteSpace($sessionId)) { Exit-Hook }
 
 $seq = [DateTime]::UtcNow.Ticks
-$herdr = if ([string]::IsNullOrWhiteSpace($env:HERDR_BIN_PATH)) { "herdr" } else { $env:HERDR_BIN_PATH }
+$vrspi = if ([string]::IsNullOrWhiteSpace($(if ($env:VRSPI_BIN_PATH) { $env:VRSPI_BIN_PATH } else { $env:HERDR_BIN_PATH }))) { "vrspi" } else { $(if ($env:VRSPI_BIN_PATH) { $env:VRSPI_BIN_PATH } else { $env:HERDR_BIN_PATH }) }
 try {
-    & $herdr pane report-agent-session $env:HERDR_PANE_ID --source herdr:cursor --agent cursor --seq $seq --agent-session-id $sessionId 2>$null | Out-Null
+    & $vrspi pane report-agent-session $(if ($env:VRSPI_PANE_ID) { $env:VRSPI_PANE_ID } else { $env:HERDR_PANE_ID }) --source vrspi:cursor --agent cursor --seq $seq --agent-session-id $sessionId 2>$null | Out-Null
 } catch {
 }
 

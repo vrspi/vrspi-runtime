@@ -1,16 +1,16 @@
 #!/bin/sh
-# managed by herdr; reinstalling the integration replaces this file.
-# HERDR_INTEGRATION_ID=qwen
-# HERDR_INTEGRATION_VERSION=1
+# managed by vrspi; reinstalling the integration replaces this file.
+# VRSPI_INTEGRATION_ID=qwen
+# VRSPI_INTEGRATION_VERSION=1
 
 [ "${1:-}" = "session" ] || exit 0
-[ "${HERDR_ENV:-}" = "1" ] || exit 0
-[ -n "${HERDR_PANE_ID:-}" ] || exit 0
-[ -n "${HERDR_SOCKET_PATH:-}" ] || exit 0
-if [ -n "${HERDR_BIN_PATH:-}" ]; then
+[ "${VRSPI_ENV:-${HERDR_ENV:-}}" = "1" ] || exit 0
+[ -n "${VRSPI_PANE_ID:-${HERDR_PANE_ID:-}}" ] || exit 0
+[ -n "${VRSPI_SOCKET_PATH:-${HERDR_SOCKET_PATH:-}}" ] || exit 0
+if [ -n "${VRSPI_BIN_PATH:-${HERDR_BIN_PATH:-}}" ]; then
     [ -x "$HERDR_BIN_PATH" ] || exit 0
 else
-    command -v herdr >/dev/null 2>&1 || exit 0
+    command -v vrspi >/dev/null 2>&1 || exit 0
 fi
 command -v python3 >/dev/null 2>&1 || exit 0
 
@@ -27,10 +27,10 @@ try:
     source = payload.get("source")
     if not isinstance(session_id, str) or not session_id:
         raise ValueError
-    command = os.environ.get("HERDR_BIN_PATH") or "herdr"
+    command = os.environ.get("HERDR_BIN_PATH") or "vrspi"
     args = [
         command, "pane", "report-agent-session", os.environ["HERDR_PANE_ID"],
-        "--source", "herdr:qwen", "--agent", "qwen",
+        "--source", "vrspi:qwen", "--agent", "qwen",
         "--agent-session-id", session_id, "--seq", str(time.time_ns()),
     ]
     if source in ("startup", "resume", "clear", "compact", "branch"):

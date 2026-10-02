@@ -23,43 +23,43 @@ pub(crate) use registry::{
 };
 pub(crate) use types::{IntegrationRecommendation, IntegrationStatus, IntegrationStatusKind};
 
-const PI_EXTENSION_INSTALL_NAME: &str = "herdr-agent-state.ts";
-const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/herdr-agent-state.ts");
+const PI_EXTENSION_INSTALL_NAME: &str = "vrspi-agent-state.ts";
+const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/vrspi-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 8;
 const OMP_EXTENSION_INSTALL_NAME: &str = "herdr-omp-agent-state.ts";
-const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/herdr-agent-state.ts");
+const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/vrspi-agent-state.ts");
 const OMP_INTEGRATION_VERSION: u32 = 9;
 const CLAUDE_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const CLAUDE_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/claude/herdr-agent-state.ps1")
+    include_str!("assets/claude/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/claude/herdr-agent-state.sh")
+    include_str!("assets/claude/vrspi-agent-state.sh")
 };
 const CLAUDE_INTEGRATION_VERSION: u32 = 9;
 const CODEX_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const CODEX_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/codex/herdr-agent-state.ps1")
+    include_str!("assets/codex/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/codex/herdr-agent-state.sh")
+    include_str!("assets/codex/vrspi-agent-state.sh")
 };
 const CODEX_INTEGRATION_VERSION: u32 = 8;
 const KIMI_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const KIMI_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/kimi/herdr-agent-state.ps1")
+    include_str!("assets/kimi/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/kimi/herdr-agent-state.sh")
+    include_str!("assets/kimi/vrspi-agent-state.sh")
 };
 const KIMI_INTEGRATION_VERSION: u32 = 7;
 const KIMI_CONFIG_BLOCK_BEGIN: &str = "# >>> herdr kimi integration";
@@ -94,14 +94,14 @@ const KIMI_HOOK_EVENTS: [(&str, Option<&str>, &str); 12] = [
     ("Interrupt", None, "idle"),
 ];
 const COPILOT_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const COPILOT_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/copilot/herdr-agent-state.ps1")
+    include_str!("assets/copilot/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/copilot/herdr-agent-state.sh")
+    include_str!("assets/copilot/vrspi-agent-state.sh")
 };
 const COPILOT_INTEGRATION_VERSION: u32 = 3;
 const COPILOT_HOOK_EVENTS: [&str; 1] = ["SessionStart"];
@@ -117,14 +117,14 @@ const COPILOT_REMOVED_LIFECYCLE_HOOK_EVENTS: [&str; 9] = [
     "sessionStart",
 ];
 const DEVIN_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const DEVIN_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/devin/herdr-agent-state.ps1")
+    include_str!("assets/devin/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/devin/herdr-agent-state.sh")
+    include_str!("assets/devin/vrspi-agent-state.sh")
 };
 const DEVIN_INTEGRATION_VERSION: u32 = 2;
 const DEVIN_HOOK_EVENTS: [(&str, &str); 6] = [
@@ -144,14 +144,14 @@ const DEVIN_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 6] = [
     ("SessionEnd", "release"),
 ];
 const DROID_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const DROID_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/droid/herdr-agent-state.ps1")
+    include_str!("assets/droid/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/droid/herdr-agent-state.sh")
+    include_str!("assets/droid/vrspi-agent-state.sh")
 };
 const DROID_INTEGRATION_VERSION: u32 = 3;
 const DROID_HOOK_EVENTS: [(&str, &str); 1] = [("SessionStart", "session")];
@@ -166,30 +166,33 @@ const DROID_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 9] = [
     ("PreCompact", "working"),
     ("SessionEnd", "release"),
 ];
-const OPENCODE_PLUGIN_INSTALL_NAME: &str = "herdr-agent-state.js";
-const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/herdr-agent-state.js");
-const OPENCODE_TUI_PLUGIN_INSTALL_NAME: &str = "herdr-tui-session.js";
-const OPENCODE_TUI_PLUGIN_SPEC: &str = "./herdr-tui-session.js";
-const OPENCODE_TUI_PLUGIN_ASSET: &str = include_str!("assets/opencode/herdr-tui-session.js");
+const OPENCODE_PLUGIN_INSTALL_NAME: &str = "vrspi-agent-state.js";
+const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/vrspi-agent-state.js");
+const OPENCODE_TUI_PLUGIN_INSTALL_NAME: &str = "vrspi-tui-session.js";
+const OPENCODE_TUI_PLUGIN_SPEC: &str = "./vrspi-tui-session.js";
+const OPENCODE_TUI_PLUGIN_ASSET: &str = include_str!("assets/opencode/vrspi-tui-session.js");
 const OPENCODE_INTEGRATION_VERSION: u32 = 10;
-const KILO_PLUGIN_INSTALL_NAME: &str = "herdr-agent-state.js";
-const KILO_PLUGIN_ASSET: &str = include_str!("assets/kilo/herdr-agent-state.js");
+const KILO_PLUGIN_INSTALL_NAME: &str = "vrspi-agent-state.js";
+const KILO_PLUGIN_ASSET: &str = include_str!("assets/kilo/vrspi-agent-state.js");
 const KILO_INTEGRATION_VERSION: u32 = 4;
-const HERMES_PLUGIN_INSTALL_NAME: &str = "herdr-agent-state";
+const HERMES_PLUGIN_INSTALL_NAME: &str = "vrspi-agent-state";
+/// The Herdr-era plugin directory name, still matched so a stale entry pointing
+/// at a directory this install removed does not survive in a user's config.
+const LEGACY_HERMES_PLUGIN_INSTALL_NAME: &str = "herdr-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
 const HERMES_PLUGIN_MANIFEST_ASSET: &str = include_str!("assets/hermes/plugin.yaml");
 const HERMES_PLUGIN_INIT_ASSET: &str = include_str!("assets/hermes/__init__.py");
 const HERMES_INTEGRATION_VERSION: u32 = 5;
 const QODERCLI_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const QODERCLI_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/qodercli/herdr-agent-state.ps1")
+    include_str!("assets/qodercli/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/qodercli/herdr-agent-state.sh")
+    include_str!("assets/qodercli/vrspi-agent-state.sh")
 };
 const QODERCLI_INTEGRATION_VERSION: u32 = 3;
 const QODERCLI_HOOK_EVENTS: [(&str, &str); 1] = [("SessionStart", "session")];
@@ -220,26 +223,26 @@ const QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 12] = [
     ("SessionEnd", "release"),
 ];
 const CURSOR_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const CURSOR_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/cursor/herdr-agent-state.ps1")
+    include_str!("assets/cursor/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/cursor/herdr-agent-state.sh")
+    include_str!("assets/cursor/vrspi-agent-state.sh")
 };
 const CURSOR_INTEGRATION_VERSION: u32 = 1;
 #[cfg(windows)]
-const ANTIGRAVITY_CLI_HOOK_INSTALL_NAME: &str = "herdr-agent-state.ps1";
+const ANTIGRAVITY_CLI_HOOK_INSTALL_NAME: &str = "vrspi-agent-state.ps1";
 #[cfg(not(windows))]
-const ANTIGRAVITY_CLI_HOOK_INSTALL_NAME: &str = "herdr-agent-state.sh";
+const ANTIGRAVITY_CLI_HOOK_INSTALL_NAME: &str = "vrspi-agent-state.sh";
 #[cfg(windows)]
 const ANTIGRAVITY_CLI_HOOK_ASSET: &str =
-    include_str!("assets/antigravity_cli/herdr-agent-state.ps1");
+    include_str!("assets/antigravity_cli/vrspi-agent-state.ps1");
 #[cfg(not(windows))]
 const ANTIGRAVITY_CLI_HOOK_ASSET: &str =
-    include_str!("assets/antigravity_cli/herdr-agent-state.sh");
+    include_str!("assets/antigravity_cli/vrspi-agent-state.sh");
 const ANTIGRAVITY_CLI_INTEGRATION_VERSION: u32 = 3;
 /// Antigravity CLI keys `hooks.json` by hook name, so every Herdr entry lives
 /// under one Herdr-owned block that install rewrites and uninstall removes.
@@ -255,16 +258,16 @@ const ANTIGRAVITY_CLI_HOOK_TIMEOUT_SEC: u64 = 10;
 /// events accept a `matcher`/`hooks` wrapper, and sending one here would
 /// invalidate the whole file.
 const ANTIGRAVITY_CLI_HOOK_EVENTS: [(&str, &str); 1] = [("PreInvocation", "session")];
-const INTEGRATION_VERSION_MARKER: &str = "HERDR_INTEGRATION_VERSION=";
+const INTEGRATION_VERSION_MARKER: &str = "VRSPI_INTEGRATION_VERSION=";
 const MASTRACODE_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const MASTRACODE_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/mastracode/herdr-agent-state.ps1")
+    include_str!("assets/mastracode/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/mastracode/herdr-agent-state.sh")
+    include_str!("assets/mastracode/vrspi-agent-state.sh")
 };
 const MASTRACODE_INTEGRATION_VERSION: u32 = 2;
 const MASTRACODE_HOOK_TIMEOUT_MS: u64 = 10_000;
@@ -284,15 +287,15 @@ const MASTRACODE_HOOK_EVENTS: [(&str, &str); 11] = [
     ("Stop", "idle"),
 ];
 const GROK_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "herdr-agent-state.ps1"
+    "vrspi-agent-state.ps1"
 } else {
-    "herdr-agent-state.sh"
+    "vrspi-agent-state.sh"
 };
 const GROK_HOOK_CONFIG_INSTALL_NAME: &str = "herdr.json";
 const GROK_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/grok/herdr-agent-state.ps1")
+    include_str!("assets/grok/vrspi-agent-state.ps1")
 } else {
-    include_str!("assets/grok/herdr-agent-state.sh")
+    include_str!("assets/grok/vrspi-agent-state.sh")
 };
 const GROK_INTEGRATION_VERSION: u32 = 1;
 

@@ -17,7 +17,7 @@ use serde_json::{json, Map, Value};
 fn windows_powershell_encoded_hook_command_preserves_script_invocation() {
     use base64::Engine;
 
-    let hook_path = Path::new(r"C:\Users\O'Neil λ\App Data\hooks\herdr-agent-state.ps1");
+    let hook_path = Path::new(r"C:\Users\O'Neil λ\App Data\hooks\vrspi-agent-state.ps1");
     let command = powershell_encoded_hook_command(hook_path, "session");
     let encoded = command
         .strip_prefix("powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ")
@@ -33,14 +33,14 @@ fn windows_powershell_encoded_hook_command_preserves_script_invocation() {
     assert!(chunks.remainder().is_empty(), "UTF-16LE payload");
     assert_eq!(
         String::from_utf16(&utf16).expect("PowerShell script"),
-        r"& 'C:\Users\O''Neil λ\App Data\hooks\herdr-agent-state.ps1' session"
+        r"& 'C:\Users\O''Neil λ\App Data\hooks\vrspi-agent-state.ps1' session"
     );
 }
 
 #[cfg(windows)]
 #[test]
 fn windows_antigravity_cli_hook_command_uses_encoded_powershell() {
-    let hook_path = Path::new(r"C:\Users\reporter\.gemini\config\hooks\herdr-agent-state.ps1");
+    let hook_path = Path::new(r"C:\Users\reporter\.gemini\config\hooks\vrspi-agent-state.ps1");
     assert_eq!(
         antigravity_cli_hook_command(hook_path, "session"),
         powershell_encoded_hook_command(hook_path, "session")
@@ -479,7 +479,7 @@ fn integration_recommendation_installs_available_or_outdated_targets() {
         label: "claude",
         command: "claude",
         available: false,
-        path: PathBuf::from("/tmp/herdr-agent-state.sh"),
+        path: PathBuf::from("/tmp/vrspi-agent-state.sh"),
         state: IntegrationStatusKind::NotInstalled,
     };
     assert!(!recommendation.needs_install());
@@ -817,7 +817,7 @@ fn outdated_integrations_detect_previous_pi_version() {
     let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
     fs::write(
         &extension_path,
-        "// HERDR_INTEGRATION_ID=pi\n// HERDR_INTEGRATION_VERSION=4\n",
+        "// VRSPI_INTEGRATION_ID=pi\n// VRSPI_INTEGRATION_VERSION=4\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -847,7 +847,7 @@ fn outdated_integrations_detect_previous_omp_version() {
     let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
     fs::write(
         &extension_path,
-        "// HERDR_INTEGRATION_ID=omp\n// HERDR_INTEGRATION_VERSION=4\n",
+        "// VRSPI_INTEGRATION_ID=omp\n// VRSPI_INTEGRATION_VERSION=4\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -894,6 +894,63 @@ fn install_pi_errors_when_extension_dir_missing() {
     let err = install_pi().unwrap_err().to_string();
 
     assert!(err.contains("pi extension directory not found"));
+
+    std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn installing_over_a_herdr_era_install_removes_the_old_hook_and_registration() {
+    // The assets were renamed from herdr-agent-state to vrspi-agent-state, and
+    // the server still exports the HERDR_ environment variables, so an orphaned
+    // old hook keeps firing and reports the same pane twice. Installing must
+    // take the old file and its registration with it.
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    let hooks_dir = home.join(".claude").join("hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+    let legacy_hook = hooks_dir.join("herdr-agent-state.sh");
+    fs::write(
+        &legacy_hook,
+        "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=8\n",
+    )
+    .unwrap();
+    fs::write(
+        home.join(".claude").join("settings.json"),
+        format!(
+            r#"{{"hooks":{{"SessionStart":[{{"matcher":"*","hooks":[{{"type":"command","command":"{} session"}}]}}]}}}}"#,
+            legacy_hook.display()
+        ),
+    )
+    .unwrap();
+    std::env::set_var("HOME", &home);
+
+    let installed = install_claude().unwrap();
+
+    assert!(
+        !legacy_hook.exists(),
+        "the Herdr-era hook file must not survive the install"
+    );
+    assert!(installed.hook_path.exists());
+    let settings: Value =
+        serde_json::from_str(&fs::read_to_string(&installed.settings_path).unwrap()).unwrap();
+    let commands: Vec<String> = settings["hooks"]["SessionStart"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry["hooks"].as_array().unwrap().iter())
+        .map(|hook| hook["command"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        commands.len(),
+        1,
+        "exactly one registration should remain, got {commands:?}"
+    );
+    assert!(
+        commands[0].contains("vrspi-agent-state"),
+        "the surviving registration must point at the installed hook: {commands:?}"
+    );
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -1081,7 +1138,7 @@ fn claude_v1_integration_status_is_outdated() {
     let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# VRSPI_INTEGRATION_ID=claude\n# VRSPI_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1111,7 +1168,7 @@ fn claude_v2_integration_status_is_outdated() {
     let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=2\n",
+        "#!/bin/sh\n# VRSPI_INTEGRATION_ID=claude\n# VRSPI_INTEGRATION_VERSION=2\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1244,7 +1301,7 @@ fn codex_v2_integration_status_is_outdated() {
     let hook_path = codex_dir.join(CODEX_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=codex\n# HERDR_INTEGRATION_VERSION=2\n",
+        "#!/bin/sh\n# VRSPI_INTEGRATION_ID=codex\n# VRSPI_INTEGRATION_VERSION=2\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1679,7 +1736,7 @@ fn copilot_v1_integration_status_is_outdated() {
     let hook_path = copilot_hooks_dir.join(COPILOT_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=copilot\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# VRSPI_INTEGRATION_ID=copilot\n# VRSPI_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2138,7 +2195,7 @@ fn droid_v1_integration_status_is_outdated() {
     let hook_path = droid_hooks_dir.join(DROID_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=droid\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# VRSPI_INTEGRATION_ID=droid\n# VRSPI_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2482,7 +2539,7 @@ fn install_hermes_writes_plugin_and_enables_it() {
     );
     assert_eq!(manifest, HERMES_PLUGIN_MANIFEST_ASSET);
     assert_eq!(init, HERMES_PLUGIN_INIT_ASSET);
-    assert!(config.contains("plugins:\n  enabled:\n    - herdr-agent-state"));
+    assert!(config.contains("plugins:\n  enabled:\n    - vrspi-agent-state"));
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -2497,7 +2554,7 @@ fn install_hermes_is_idempotent_for_enabled_entry() {
     fs::create_dir_all(&hermes_dir).unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  enabled:\n    - herdr-agent-state\n",
+        "plugins:\n  enabled:\n    - vrspi-agent-state\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2506,7 +2563,7 @@ fn install_hermes_is_idempotent_for_enabled_entry() {
     install_hermes().unwrap();
 
     let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
-    assert_eq!(config.matches("herdr-agent-state").count(), 1);
+    assert_eq!(config.matches("vrspi-agent-state").count(), 1);
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -2531,7 +2588,7 @@ fn install_hermes_preserves_flat_plugin_list() {
     let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
     assert_eq!(
         config,
-        "plugins:\n  - herdr-agent-state\n  - platforms/discord\n"
+        "plugins:\n  - vrspi-agent-state\n  - platforms/discord\n"
     );
 
     std::env::remove_var("HOME");
@@ -2557,7 +2614,7 @@ fn install_hermes_converts_flow_plugin_list_to_block_list() {
     let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
     assert_eq!(
         config,
-        "plugins:\n  - herdr-agent-state\n  - platforms/discord\n"
+        "plugins:\n  - vrspi-agent-state\n  - platforms/discord\n"
     );
 
     std::env::remove_var("HOME");
@@ -2573,7 +2630,7 @@ fn install_hermes_is_idempotent_for_quoted_flat_plugin_entry() {
     fs::create_dir_all(&hermes_dir).unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  - \"herdr-agent-state\" # installed by herdr\n",
+        "plugins:\n  - \"vrspi-agent-state\" # installed by herdr\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2583,7 +2640,7 @@ fn install_hermes_is_idempotent_for_quoted_flat_plugin_entry() {
     let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
     assert_eq!(
         config,
-        "plugins:\n  - \"herdr-agent-state\" # installed by herdr\n"
+        "plugins:\n  - \"vrspi-agent-state\" # installed by herdr\n"
     );
 
     std::env::remove_var("HOME");
@@ -2605,7 +2662,7 @@ fn uninstall_hermes_removes_plugin_and_enabled_entry() {
     .unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  enabled:\n    - other-plugin\n    - herdr-agent-state\n",
+        "plugins:\n  enabled:\n    - other-plugin\n    - vrspi-agent-state\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2617,7 +2674,7 @@ fn uninstall_hermes_removes_plugin_and_enabled_entry() {
     assert!(result.updated_config);
     assert!(!plugin_dir.exists());
     assert!(config.contains("    - other-plugin"));
-    assert!(!config.contains("herdr-agent-state"));
+    assert!(!config.contains("vrspi-agent-state"));
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -2638,7 +2695,7 @@ fn uninstall_hermes_preserves_flat_plugin_list() {
     .unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  - other-plugin\n  - herdr-agent-state\n",
+        "plugins:\n  - other-plugin\n  - vrspi-agent-state\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2669,7 +2726,7 @@ fn uninstall_hermes_removes_flow_plugin_list_entry() {
     .unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins: [other-plugin, herdr-agent-state]\n",
+        "plugins: [other-plugin, vrspi-agent-state]\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2700,7 +2757,7 @@ fn uninstall_hermes_removes_commented_flat_plugin_entry() {
     .unwrap();
     fs::write(
         hermes_dir.join("config.yaml"),
-        "plugins:\n  - other-plugin\n  - herdr-agent-state # installed by herdr\n",
+        "plugins:\n  - other-plugin\n  - vrspi-agent-state # installed by herdr\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2817,7 +2874,7 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(!CLAUDE_HOOK_ASSET.contains("\"state\": action"));
     assert!(!CLAUDE_HOOK_ASSET.contains("pane.release_agent"));
     assert!(
-        CODEX_HOOK_ASSET.contains("HERDR_HOOK_INPUT_FILE")
+        CODEX_HOOK_ASSET.contains("VRSPI_HOOK_INPUT_FILE")
             || CODEX_HOOK_ASSET.contains("In.ReadToEnd")
     );
     assert!(
@@ -2835,7 +2892,7 @@ fn bundled_integration_assets_report_session_refs() {
     );
     assert!(!CODEX_HOOK_ASSET.contains("\"state\": action"));
     assert!(!CODEX_HOOK_ASSET.contains("pane.release_agent"));
-    assert!(KIMI_HOOK_ASSET.contains("source\": \"herdr:kimi"));
+    assert!(KIMI_HOOK_ASSET.contains("source\": \"vrspi:kimi"));
     assert!(KIMI_HOOK_ASSET.contains("agent_session_id"));
     assert!(KIMI_HOOK_ASSET.contains("method = \"pane.report_agent_session\""));
     assert!(KIMI_HOOK_ASSET.contains("params[\"session_start_source\"] = \"startup\""));
@@ -2846,7 +2903,7 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(COPILOT_HOOK_ASSET.contains("pane.report_agent_session"));
     assert!(!COPILOT_HOOK_ASSET.contains("\"state\":"));
     assert!(!COPILOT_HOOK_ASSET.contains("pane.release_agent"));
-    assert!(DEVIN_HOOK_ASSET.contains("HERDR_DEVIN_LIST_JSON"));
+    assert!(DEVIN_HOOK_ASSET.contains("VRSPI_DEVIN_LIST_JSON"));
     assert!(DEVIN_HOOK_ASSET.contains("\"method\": \"pane.report_agent_session\""));
     assert!(!DEVIN_HOOK_ASSET.contains("\"method\": \"pane.report_agent\""));
     assert!(!DEVIN_HOOK_ASSET.contains("\"state\":"));
@@ -2861,19 +2918,19 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(OPENCODE_PLUGIN_ASSET.contains("pane.report_agent_session"));
     assert!(OPENCODE_PLUGIN_ASSET.contains("reportState"));
     assert!(!OPENCODE_PLUGIN_ASSET.contains("pane.release_agent"));
-    assert!(KILO_PLUGIN_ASSET.contains("SOURCE = \"herdr:kilo\""));
+    assert!(KILO_PLUGIN_ASSET.contains("SOURCE = \"vrspi:kilo\""));
     assert!(KILO_PLUGIN_ASSET.contains("AGENT = \"kilo\""));
     assert!(KILO_PLUGIN_ASSET.contains("pane.report_agent_session"));
     assert!(KILO_PLUGIN_ASSET.contains("session_start_source: \"startup\""));
     assert!(KILO_PLUGIN_ASSET.contains("reportState"));
     assert!(!KILO_PLUGIN_ASSET.contains("pane.release_agent"));
-    assert!(QODERCLI_HOOK_ASSET.contains("HERDR_PANE_ID"));
+    assert!(QODERCLI_HOOK_ASSET.contains("VRSPI_PANE_ID"));
     assert!(QODERCLI_HOOK_ASSET.contains("session_id"));
     assert!(QODERCLI_HOOK_ASSET.contains("report-agent-session"));
     assert!(QODERCLI_HOOK_ASSET.contains("--agent-session-id"));
     assert!(!QODERCLI_HOOK_ASSET.contains("report-agent\""));
     assert!(!QODERCLI_HOOK_ASSET.contains("release-agent"));
-    assert!(CURSOR_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=cursor"));
+    assert!(CURSOR_HOOK_ASSET.contains("VRSPI_INTEGRATION_ID=cursor"));
     assert!(CURSOR_HOOK_ASSET.contains("conversation_id"));
     assert!(CURSOR_HOOK_ASSET.contains("conversationId"));
     assert!(CURSOR_HOOK_ASSET.contains("sessionId"));
@@ -2883,20 +2940,20 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(CURSOR_HOOK_ASSET.contains("sessionStart"));
     assert!(!CURSOR_HOOK_ASSET.contains("\"state\":"));
     assert!(!CURSOR_HOOK_ASSET.contains("pane.release_agent"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=mastracode"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("HERDR_INTEGRATION_VERSION=2"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("VRSPI_INTEGRATION_ID=mastracode"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("VRSPI_INTEGRATION_VERSION=2"));
     assert!(MASTRACODE_HOOK_ASSET.contains("session_id"));
     assert!(!MASTRACODE_HOOK_ASSET.contains("run_id"));
     assert!(MASTRACODE_HOOK_ASSET.contains("agent_session_id"));
     assert!(MASTRACODE_HOOK_ASSET.contains("pane.report_agent_session"));
     assert!(MASTRACODE_HOOK_ASSET.contains("session_start_source"));
     assert!(MASTRACODE_HOOK_ASSET.contains("pane.report_agent"));
-    assert!(GROK_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=grok"));
+    assert!(GROK_HOOK_ASSET.contains("VRSPI_INTEGRATION_ID=grok"));
     assert!(GROK_HOOK_ASSET.contains("GROK_SESSION_ID"));
     assert!(GROK_HOOK_ASSET.contains("sessionId"));
     assert!(GROK_HOOK_ASSET.contains("agent_session_id"));
     assert!(GROK_HOOK_ASSET.contains("pane.report_agent_session"));
-    assert!(GROK_HOOK_ASSET.contains("herdr:grok"));
+    assert!(GROK_HOOK_ASSET.contains("vrspi:grok"));
     assert!(!GROK_HOOK_ASSET.contains("\"state\":"));
     assert!(!GROK_HOOK_ASSET.contains("pane.release_agent"));
 }
@@ -3255,9 +3312,9 @@ fn install_qwen_writes_session_hook_and_preserves_settings() {
     assert!(command.ends_with("session"));
     assert!(settings.get("permissions").is_some());
     let hook_asset = fs::read_to_string(&installed.hook_path).unwrap();
-    assert!(hook_asset.contains("HERDR_INTEGRATION_ID=qwen"));
-    assert!(hook_asset.contains("HERDR_INTEGRATION_VERSION=1"));
-    assert!(hook_asset.contains("herdr:qwen"));
+    assert!(hook_asset.contains("VRSPI_INTEGRATION_ID=qwen"));
+    assert!(hook_asset.contains("VRSPI_INTEGRATION_VERSION=1"));
+    assert!(hook_asset.contains("vrspi:qwen"));
 
     install_qwen().unwrap();
     let settings: Value =
@@ -3454,7 +3511,7 @@ fn cursor_v1_integration_status_is_current() {
     let hook_path = cursor_dir.join(CURSOR_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=cursor\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# VRSPI_INTEGRATION_ID=cursor\n# VRSPI_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var(CURSOR_CONFIG_DIR_ENV_VAR, &cursor_dir);
@@ -3591,7 +3648,7 @@ fn install_grok_writes_hook_and_config() {
     #[cfg(not(windows))]
     {
         assert!(command.starts_with("sh "));
-        assert!(command.contains("herdr-agent-state.sh"));
+        assert!(command.contains("vrspi-agent-state.sh"));
         assert!(command.ends_with(" session"));
     }
 
@@ -3966,7 +4023,7 @@ fn antigravity_cli_v2_install_is_outdated_until_reinstalled() {
     fs::write(
         hook_dir.join(ANTIGRAVITY_CLI_HOOK_INSTALL_NAME),
         ANTIGRAVITY_CLI_HOOK_ASSET
-            .replace("HERDR_INTEGRATION_VERSION=3", "HERDR_INTEGRATION_VERSION=2"),
+            .replace("VRSPI_INTEGRATION_VERSION=3", "VRSPI_INTEGRATION_VERSION=2"),
     )
     .unwrap();
     std::env::set_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &agy_dir);
@@ -4029,7 +4086,7 @@ fn install_antigravity_cli_rewrites_stale_herdr_block() {
     assert!(entries[0]
         .get("command")
         .and_then(Value::as_str)
-        .is_some_and(|command| command.contains("herdr-agent-state")));
+        .is_some_and(|command| command.contains("vrspi-agent-state")));
 
     std::env::remove_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR);
     let _ = fs::remove_dir_all(base);
@@ -4111,7 +4168,7 @@ fn grok_status_reports_outdated_when_hook_config_missing_or_broken() {
     // nonfunctional, so neither may report current.
     fs::write(
         &config_path,
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo herdr-agent-state.sh"}]}]}}"#,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo vrspi-agent-state.sh"}]}]}}"#,
     )
     .unwrap();
     assert_eq!(grok_state(), IntegrationStatusKind::Outdated);

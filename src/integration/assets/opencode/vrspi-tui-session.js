@@ -1,18 +1,18 @@
-// installed by herdr
-// managed by herdr; reinstalling or updating the integration overwrites this file.
-// HERDR_INTEGRATION_ID=opencode-tui
-// HERDR_INTEGRATION_VERSION=10
+// installed by vrspi
+// managed by vrspi; reinstalling or updating the integration overwrites this file.
+// VRSPI_INTEGRATION_ID=opencode-tui
+// VRSPI_INTEGRATION_VERSION=10
 
 import net from "node:net";
 
-const SOURCE = "herdr:opencode";
+const SOURCE = "vrspi:opencode";
 const AGENT = "opencode";
 const ROUTE_POLL_INTERVAL_MS = 100;
 const SELECTION_RETRY_DELAYS_MS = [100, 400, 1_000];
 
 function requestOnce(sessionID) {
-  const paneId = process.env.HERDR_PANE_ID;
-  const socketPath = process.env.HERDR_SOCKET_PATH;
+  const paneId = (process.env.VRSPI_PANE_ID ?? process.env.HERDR_PANE_ID);
+  const socketPath = (process.env.VRSPI_SOCKET_PATH ?? process.env.HERDR_SOCKET_PATH);
   if (!paneId || !socketPath) {
     return Promise.resolve();
   }
@@ -51,12 +51,12 @@ function requestOnce(sessionID) {
 }
 
 export default {
-  id: "herdr.opencode.session-selection",
+  id: "vrspi.opencode.session-selection",
   tui: async (api) => {
     if (
-      process.env.HERDR_ENV !== "1" ||
-      !process.env.HERDR_SOCKET_PATH ||
-      !process.env.HERDR_PANE_ID
+      (process.env.VRSPI_ENV ?? process.env.HERDR_ENV) !== "1" ||
+      !(process.env.VRSPI_SOCKET_PATH ?? process.env.HERDR_SOCKET_PATH) ||
+      !(process.env.VRSPI_PANE_ID ?? process.env.HERDR_PANE_ID)
     ) {
       return;
     }

@@ -1,7 +1,7 @@
-"""Hermes plugin installed by Herdr to report resumable session identity."""
+"""Hermes plugin installed by Vrspi to report resumable session identity."""
 
-# HERDR_INTEGRATION_ID=hermes
-# HERDR_INTEGRATION_VERSION=5
+# VRSPI_INTEGRATION_ID=hermes
+# VRSPI_INTEGRATION_VERSION=5
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ import os
 import subprocess
 import time
 
-_SOURCE = "herdr:hermes"
+_SOURCE = "vrspi:hermes"
 _AGENT = "hermes"
 _INTERACTIVE_PLATFORMS = {"cli", "tui", "desktop", "acp"}
 
 
 def _pane_id() -> str | None:
-    if os.environ.get("HERDR_ENV") != "1":
+    if os.(environ.get("VRSPI_ENV") or environ.get("HERDR_ENV")) != "1":
         return None
     return os.environ.get("HERDR_PANE_ID", "").strip() or None
 
@@ -25,7 +25,7 @@ def _send_session(session_id: str, start_source: str) -> None:
     if pane_id is None:
         return
     command = [
-        os.environ.get("HERDR_BIN_PATH") or "herdr",
+        os.(environ.get("VRSPI_BIN_PATH") or environ.get("HERDR_BIN_PATH")) or "vrspi",
         "pane",
         "report-agent-session",
         pane_id,

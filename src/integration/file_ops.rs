@@ -10,31 +10,51 @@ pub(crate) fn remove_file_if_exists(path: &Path) -> io::Result<bool> {
     }
 }
 
-#[cfg(windows)]
-pub(crate) fn legacy_bash_hook_path(hook_path: &Path) -> std::path::PathBuf {
-    hook_path.with_file_name("herdr-agent-state.sh")
-}
-
-#[cfg(windows)]
-pub(crate) fn remove_legacy_bash_hook_file(hook_path: &Path) -> io::Result<bool> {
-    let legacy_path = legacy_bash_hook_path(hook_path);
-    let content = match fs::read_to_string(&legacy_path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(err) => return Err(err),
-    };
-
-    if content.contains("HERDR_INTEGRATION_ID=") {
-        fs::remove_file(legacy_path)?;
-        return Ok(true);
+/// Hook files a previous install left behind that this one supersedes.
+///
+/// Two kinds. The Herdr-era names, because the assets were renamed to
+/// `vrspi-agent-state.*` and the old files are still live: the server exports
+/// both the VRSPI_ and HERDR_ environment variables, so an orphaned
+/// `herdr-agent-state.sh` keeps firing and reports the same pane twice. And on
+/// Windows the sibling shell hook, which the PowerShell hook replaces.
+///
+/// Only files carrying an integration marker are removed, so a hand-written
+/// hook that happens to share the name is never deleted.
+fn superseded_hook_names(hook_path: &Path) -> Vec<String> {
+    let mut names: Vec<String> = ["sh", "ps1", "ts", "js"]
+        .iter()
+        .map(|extension| format!("herdr-agent-state.{extension}"))
+        .collect();
+    if cfg!(windows) {
+        if let Some(current) = hook_path.file_name().and_then(|name| name.to_str()) {
+            if current != "vrspi-agent-state.sh" {
+                names.push("vrspi-agent-state.sh".to_string());
+            }
+        }
     }
-
-    Ok(false)
+    names
 }
 
-#[cfg(not(windows))]
-pub(crate) fn remove_legacy_bash_hook_file(_hook_path: &Path) -> io::Result<bool> {
-    Ok(false)
+/// Removes hook files this install supersedes. Returns whether any went away.
+pub(crate) fn remove_superseded_hook_files(hook_path: &Path) -> io::Result<bool> {
+    let mut removed = false;
+    for name in superseded_hook_names(hook_path) {
+        let candidate = hook_path.with_file_name(&name);
+        if candidate == hook_path {
+            continue;
+        }
+        let content = match fs::read_to_string(&candidate) {
+            Ok(content) => content,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
+            // A hook we cannot read is a hook we must not delete.
+            Err(_) => continue,
+        };
+        if content.contains("HERDR_INTEGRATION_ID=") || content.contains("VRSPI_INTEGRATION_ID=") {
+            fs::remove_file(&candidate)?;
+            removed = true;
+        }
+    }
+    Ok(removed)
 }
 
 pub(crate) fn remove_dir_all_if_exists(path: &Path) -> io::Result<bool> {

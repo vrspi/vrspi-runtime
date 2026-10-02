@@ -1,18 +1,18 @@
-// installed by herdr
-// managed by herdr; reinstalling or updating the integration overwrites this file.
+// installed by vrspi
+// managed by vrspi; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
-// HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=8
+// VRSPI_INTEGRATION_ID=pi
+// VRSPI_INTEGRATION_VERSION=8
 // @ts-nocheck
 
 import net from "node:net";
 
-const HERDR_ENV = process.env.HERDR_ENV;
-const socketPath = process.env.HERDR_SOCKET_PATH;
+const HERDR_ENV = (process.env.VRSPI_ENV ?? process.env.HERDR_ENV);
+const socketPath = (process.env.VRSPI_SOCKET_PATH ?? process.env.HERDR_SOCKET_PATH);
 const socketEndpoint =
   process.platform === "win32" && socketPath ? `\\\\.\\pipe\\${socketPath}` : socketPath;
-const paneId = process.env.HERDR_PANE_ID;
-const source = "herdr:pi";
+const paneId = (process.env.VRSPI_PANE_ID ?? process.env.HERDR_PANE_ID);
+const source = "vrspi:pi";
 
 function enabled() {
   return HERDR_ENV === "1" && !!socketPath && !!paneId;
@@ -204,7 +204,7 @@ export default function (pi) {
     queueState(next.state, next.message);
   }
 
-  pi.events.on("herdr:blocked", (data) => {
+  pi.events.on("vrspi:blocked", (data) => {
     if (!rootSession) {
       return;
     }
@@ -223,7 +223,7 @@ export default function (pi) {
   });
 
   pi.on("session_start", async (event, ctx) => {
-    // TUI only: RPC/JSON/print modes are headless (no PTY herdr can display),
+    // TUI only: RPC/JSON/print modes are headless (no PTY vrspi can display),
     // and RPC still reports hasUI=true, so mode is the reliable gate.
     if (ctx?.mode !== "tui") {
       return;

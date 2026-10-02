@@ -1,11 +1,11 @@
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
+# installed by vrspi
+# managed by vrspi; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HERDR_INTEGRATION_ID=antigravity_cli
-# HERDR_INTEGRATION_VERSION=3
+# VRSPI_INTEGRATION_ID=antigravity_cli
+# VRSPI_INTEGRATION_VERSION=3
 
-# Session-only: this hook reports the Antigravity conversation so Herdr can
-# resume the pane. Lifecycle state comes from Herdr's screen detection.
+# Session-only: this hook reports the Antigravity conversation so Vrspi can
+# resume the pane. Lifecycle state comes from Vrspi's screen detection.
 
 param([string]$Action = "")
 
@@ -17,8 +17,8 @@ function Exit-Hook {
 }
 
 if ($Action -ne "session") { Exit-Hook }
-if ($env:HERDR_ENV -ne "1") { Exit-Hook }
-if ([string]::IsNullOrWhiteSpace($env:HERDR_PANE_ID)) { Exit-Hook }
+if ($(if ($env:VRSPI_ENV) { $env:VRSPI_ENV } else { $env:HERDR_ENV }) -ne "1") { Exit-Hook }
+if ([string]::IsNullOrWhiteSpace($(if ($env:VRSPI_PANE_ID) { $env:VRSPI_PANE_ID } else { $env:HERDR_PANE_ID }))) { Exit-Hook }
 
 $inputText = [Console]::In.ReadToEnd()
 try {
@@ -33,14 +33,14 @@ $conversationId = if ($payload.conversationId -is [string]) { $payload.conversat
 if ([string]::IsNullOrWhiteSpace($conversationId)) { Exit-Hook }
 
 $seq = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$herdr = if ([string]::IsNullOrWhiteSpace($env:HERDR_BIN_PATH)) { "herdr" } else { $env:HERDR_BIN_PATH }
+$vrspi = if ([string]::IsNullOrWhiteSpace($(if ($env:VRSPI_BIN_PATH) { $env:VRSPI_BIN_PATH } else { $env:HERDR_BIN_PATH }))) { "vrspi" } else { $(if ($env:VRSPI_BIN_PATH) { $env:VRSPI_BIN_PATH } else { $env:HERDR_BIN_PATH }) }
 try {
     $sessionArgs = @(
         "pane",
         "report-agent-session",
-        $env:HERDR_PANE_ID,
+        $(if ($env:VRSPI_PANE_ID) { $env:VRSPI_PANE_ID } else { $env:HERDR_PANE_ID }),
         "--source",
-        "herdr:antigravity_cli",
+        "vrspi:antigravity_cli",
         "--agent",
         "agy",
         "--seq",
@@ -51,7 +51,7 @@ try {
     if ($payload.transcriptPath -is [string] -and -not [string]::IsNullOrWhiteSpace($payload.transcriptPath)) {
         $sessionArgs += @("--agent-session-path", "$($payload.transcriptPath)")
     }
-    & $herdr @sessionArgs 2>$null | Out-Null
+    & $vrspi @sessionArgs 2>$null | Out-Null
 } catch {
 }
 

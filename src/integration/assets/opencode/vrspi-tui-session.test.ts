@@ -33,9 +33,9 @@ mock.module("node:net", () => ({
 beforeEach(() => {
   requests.length = 0;
   requestWaiters.length = 0;
-  process.env.HERDR_ENV = "1";
-  process.env.HERDR_SOCKET_PATH = "test.sock";
-  process.env.HERDR_PANE_ID = "test:p1";
+  process.env.VRSPI_ENV = "1";
+  process.env.VRSPI_SOCKET_PATH = "test.sock";
+  process.env.VRSPI_PANE_ID = "test:p1";
 });
 
 afterEach(() => {
@@ -46,7 +46,7 @@ afterEach(() => {
 
 async function loadPlugin() {
   importCounter += 1;
-  const module = await import(`./herdr-tui-session.js?test=${importCounter}`);
+  const module = await import(`./vrspi-tui-session.js?test=${importCounter}`);
   return module.default;
 }
 
@@ -109,7 +109,7 @@ test("reports a root session when only the local route changes", async () => {
   expect(requestParam(requests[0], "seq")).toBeUndefined();
 });
 
-test("retries an initial selection while Herdr detects the process", async () => {
+test("retries an initial selection while Vrspi detects the process", async () => {
   const plugin = await loadPlugin();
   const tui = fakeApi();
   tui.addSession({ id: "session-a" });

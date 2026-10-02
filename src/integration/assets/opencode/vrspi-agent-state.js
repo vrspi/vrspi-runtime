@@ -1,12 +1,12 @@
-// installed by herdr
-// managed by herdr; reinstalling or updating the integration overwrites this file.
+// installed by vrspi
+// managed by vrspi; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
-// HERDR_INTEGRATION_ID=opencode
-// HERDR_INTEGRATION_VERSION=10
+// VRSPI_INTEGRATION_ID=opencode
+// VRSPI_INTEGRATION_VERSION=10
 
 import net from "node:net";
 
-const SOURCE = "herdr:opencode";
+const SOURCE = "vrspi:opencode";
 const AGENT = "opencode";
 let reportSeq = Date.now() * 1000;
 let requestChain = Promise.resolve();
@@ -59,8 +59,8 @@ function request(method, params) {
 }
 
 function requestOnce(method, params) {
-  const paneId = process.env.HERDR_PANE_ID;
-  const socketPath = process.env.HERDR_SOCKET_PATH;
+  const paneId = (process.env.VRSPI_PANE_ID ?? process.env.HERDR_PANE_ID);
+  const socketPath = (process.env.VRSPI_SOCKET_PATH ?? process.env.HERDR_SOCKET_PATH);
 
   if (!paneId || !socketPath) {
     return Promise.resolve();
@@ -118,11 +118,11 @@ function reportState(state, sessionID) {
   return request("pane.report_agent", params);
 }
 
-export const HerdrAgentStatePlugin = async () => {
+export const VrspiAgentStatePlugin = async () => {
   if (
-    process.env.HERDR_ENV !== "1" ||
-    !process.env.HERDR_SOCKET_PATH ||
-    !process.env.HERDR_PANE_ID
+    (process.env.VRSPI_ENV ?? process.env.HERDR_ENV) !== "1" ||
+    !(process.env.VRSPI_SOCKET_PATH ?? process.env.HERDR_SOCKET_PATH) ||
+    !(process.env.VRSPI_PANE_ID ?? process.env.HERDR_PANE_ID)
   ) {
     return {};
   }

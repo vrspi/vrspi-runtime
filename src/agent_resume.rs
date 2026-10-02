@@ -79,19 +79,23 @@ pub fn normalize_session_start_source(value: Option<String>) -> Option<String> {
     }
 }
 
+/// Agents whose integration reports native session state itself.
+const NATIVE_STATE_AGENTS: [&str; 9] = [
+    "claude", "codex", "copilot", "devin", "droid", "qodercli", "qwen", "cursor", "grok",
+];
+
 pub fn is_reserved_native_state_source(source: &str, agent: &str) -> bool {
-    matches!(
-        (source, agent),
-        ("herdr:claude", "claude")
-            | ("herdr:codex", "codex")
-            | ("herdr:copilot", "copilot")
-            | ("herdr:devin", "devin")
-            | ("herdr:droid", "droid")
-            | ("herdr:qodercli", "qodercli")
-            | ("herdr:qwen", "qwen")
-            | ("herdr:cursor", "cursor")
-            | ("herdr:grok", "grok")
-    )
+    // Both spellings are accepted. The shims now report `vrspi:<agent>`, but a
+    // shim installed before the rename keeps reporting `herdr:<agent>` until
+    // the user reinstalls integrations, and native restore must keep working
+    // across that window.
+    let Some(reported) = source
+        .strip_prefix("vrspi:")
+        .or_else(|| source.strip_prefix("herdr:"))
+    else {
+        return false;
+    };
+    reported == agent && NATIVE_STATE_AGENTS.contains(&agent)
 }
 
 pub fn session_ref_from_snapshot(

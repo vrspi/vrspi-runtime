@@ -1,12 +1,12 @@
 #!/bin/sh
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
+# installed by vrspi
+# managed by vrspi; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HERDR_INTEGRATION_ID=antigravity_cli
-# HERDR_INTEGRATION_VERSION=3
+# VRSPI_INTEGRATION_ID=antigravity_cli
+# VRSPI_INTEGRATION_VERSION=3
 
-# Session-only: this hook reports the Antigravity conversation so Herdr can
-# resume the pane. Lifecycle state comes from Herdr's screen detection.
+# Session-only: this hook reports the Antigravity conversation so Vrspi can
+# resume the pane. Lifecycle state comes from Vrspi's screen detection.
 
 set -eu
 
@@ -18,9 +18,9 @@ emit_and_exit() {
 }
 
 [ "${1:-}" = "session" ] || emit_and_exit
-[ "${HERDR_ENV:-}" = "1" ] || emit_and_exit
-[ -n "${HERDR_SOCKET_PATH:-}" ] || emit_and_exit
-[ -n "${HERDR_PANE_ID:-}" ] || emit_and_exit
+[ "${VRSPI_ENV:-${HERDR_ENV:-}}" = "1" ] || emit_and_exit
+[ -n "${VRSPI_SOCKET_PATH:-${HERDR_SOCKET_PATH:-}}" ] || emit_and_exit
+[ -n "${VRSPI_PANE_ID:-${HERDR_PANE_ID:-}}" ] || emit_and_exit
 command -v python3 >/dev/null 2>&1 || emit_and_exit
 
 python3 -c '
@@ -49,7 +49,7 @@ if session_id is None:
 seq = time.time_ns()
 params = {
     "pane_id": os.environ["HERDR_PANE_ID"],
-    "source": "herdr:antigravity_cli",
+    "source": "vrspi:antigravity_cli",
     "agent": "agy",
     "seq": seq,
     "agent_session_id": session_id,
@@ -60,7 +60,7 @@ if transcript_path is not None:
     params["agent_session_path"] = transcript_path
 
 request = json.dumps({
-    "id": f"herdr:antigravity_cli:{seq}",
+    "id": f"vrspi:antigravity_cli:{seq}",
     "method": "pane.report_agent_session",
     "params": params,
 })

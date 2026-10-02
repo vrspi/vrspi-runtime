@@ -1,12 +1,12 @@
 #!/bin/sh
-# managed by herdr; reinstalling the integration replaces this file.
-# HERDR_INTEGRATION_ID=qodercli
-# HERDR_INTEGRATION_VERSION=3
+# managed by vrspi; reinstalling the integration replaces this file.
+# VRSPI_INTEGRATION_ID=qodercli
+# VRSPI_INTEGRATION_VERSION=3
 
 [ "${1:-}" = "session" ] || exit 0
-[ "${HERDR_ENV:-}" = "1" ] || exit 0
-[ -n "${HERDR_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HERDR_PANE_ID:-}" ] || exit 0
+[ "${VRSPI_ENV:-${HERDR_ENV:-}}" = "1" ] || exit 0
+[ -n "${VRSPI_SOCKET_PATH:-${HERDR_SOCKET_PATH:-}}" ] || exit 0
+[ -n "${VRSPI_PANE_ID:-${HERDR_PANE_ID:-}}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 python3 -c '
@@ -23,9 +23,9 @@ try:
         raise ValueError
     subprocess.run(
         [
-            os.environ.get("HERDR_BIN_PATH") or "herdr",
+            os.environ.get("HERDR_BIN_PATH") or "vrspi",
             "pane", "report-agent-session", os.environ["HERDR_PANE_ID"],
-            "--source", "herdr:qodercli", "--agent", "qodercli",
+            "--source", "vrspi:qodercli", "--agent", "qodercli",
             "--agent-session-id", session_id, "--seq", str(time.time_ns()),
         ],
         stdin=subprocess.DEVNULL,
