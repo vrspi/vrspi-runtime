@@ -432,6 +432,7 @@ impl App {
             sidebar_width_source,
             sidebar_section_split,
             collapsed_space_keys,
+            hidden_workspace_ids,
         ) = if no_session {
             (
                 Vec::new(),
@@ -440,6 +441,7 @@ impl App {
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
                 0.5_f32,
+                std::collections::HashSet::new(),
                 std::collections::HashSet::new(),
             )
         } else if let Some(snap) = crate::persist::load() {
@@ -495,6 +497,7 @@ impl App {
                     },
                     snap.sidebar_section_split.unwrap_or(0.5),
                     snap.collapsed_space_keys,
+                    snap.hidden_workspace_ids,
                 )
             } else {
                 crate::logging::session_restored(ws.len(), "ok");
@@ -512,6 +515,7 @@ impl App {
                     },
                     snap.sidebar_section_split.unwrap_or(0.5),
                     snap.collapsed_space_keys,
+                    snap.hidden_workspace_ids,
                 )
             }
         } else {
@@ -522,6 +526,7 @@ impl App {
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
                 0.5_f32,
+                std::collections::HashSet::new(),
                 std::collections::HashSet::new(),
             )
         };
@@ -623,6 +628,7 @@ impl App {
             worktree_directory,
             collapsed_space_keys,
             collapsed_agent_groups: std::collections::HashSet::new(),
+            hidden_workspace_ids,
             request_complete_onboarding: false,
             name_input: String::new(),
             name_input_replace_on_type: false,
@@ -770,6 +776,10 @@ impl App {
         };
 
         state.terminals = restored_terminals;
+        // A snapshot can name a hidden workspace as the selected or active
+        // one, so the restored pointers are moved onto something drawn before
+        // anything reads them.
+        state.rehome_onto_visible_workspace();
 
         for ws_idx in 0..state.workspaces.len() {
             let cwd = state.workspaces[ws_idx]
@@ -932,6 +942,8 @@ impl App {
             app.state.sidebar_section_split = split;
         }
         app.state.collapsed_space_keys = snapshot.collapsed_space_keys.clone();
+        app.state.hidden_workspace_ids = snapshot.hidden_workspace_ids.clone();
+        app.state.rehome_onto_visible_workspace();
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {
@@ -6328,12 +6340,14 @@ last_pane = "prefix+tab"
                     x: 2,
                     y: 2,
                     list: state::MenuListState::new(0),
+                    hide_available: false,
                 }
                 .items()
                 .iter()
                 .position(|item| *item == "Close")
                 .expect("close entry"),
             ),
+            hide_available: false,
         };
         app.state.context_menu = Some(menu);
         app.state.mode = Mode::ContextMenu;

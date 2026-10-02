@@ -4112,6 +4112,45 @@
           ],
           "type": "object"
         },
+        "RoomEvidenceKindValue": {
+          "description": "What a piece of evidence points at.",
+          "enum": [
+            "raw_pty",
+            "transcript",
+            "command",
+            "file"
+          ],
+          "type": "string"
+        },
+        "RoomEvidenceRefValue": {
+          "description": "A pointer to stored proof, with the digest it had when it was cited.\n\nSubmitting and verifying both require at least one, because a claim that\nwork is done is not the same as something a later reader can check.",
+          "properties": {
+            "artifact_version": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "digest": {
+              "type": "string"
+            },
+            "handle": {
+              "description": "Opaque locator: a path, a pane id, a record id.",
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/schemas/request/$defs/RoomEvidenceKindValue"
+            }
+          },
+          "required": [
+            "kind",
+            "handle",
+            "digest"
+          ],
+          "type": "object"
+        },
         "RoomLifecycleParams": {
           "properties": {
             "lifecycle": {
@@ -4382,6 +4421,137 @@
         },
         "RoomTargetParams": {
           "properties": {
+            "room_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id"
+          ],
+          "type": "object"
+        },
+        "RoomTaskCommandParams": {
+          "description": "A command against one existing task.\n\n`expected_revision` is the revision the caller read. A mismatch is refused\nrather than applied, so two agents acting on stale reads cannot both win.",
+          "properties": {
+            "caller_pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_nonce": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "epoch": {
+              "description": "Required where the protocol demands a lease: start and submit.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "evidence": {
+              "default": [],
+              "description": "Proof, required by submit and verify.",
+              "items": {
+                "$ref": "#/schemas/request/$defs/RoomEvidenceRefValue"
+              },
+              "type": "array"
+            },
+            "expected_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "lease_ms": {
+              "description": "How long the claim should hold, in milliseconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "reason": {
+              "description": "Why the task failed. Required by `room.task.fail`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "task_id",
+            "expected_revision"
+          ],
+          "type": "object"
+        },
+        "RoomTaskCreateParams": {
+          "properties": {
+            "caller_pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_nonce": {
+              "description": "Makes the command safe to retry.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "depends_on": {
+              "default": [],
+              "description": "Tasks that must be verified before this one is ready.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "owner_member_id": {
+              "description": "Seat answerable for the work.",
+              "type": "string"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "root_id": {
+              "description": "Objective to charge it to. Omitting it starts a new one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "room_id",
+            "title",
+            "owner_member_id"
+          ],
+          "type": "object"
+        },
+        "RoomTaskListParams": {
+          "properties": {
+            "ready_only": {
+              "default": false,
+              "description": "Only tasks whose dependencies are met and whose lease has not lapsed.",
+              "type": "boolean"
+            },
             "room_id": {
               "type": "string"
             }
@@ -6381,6 +6551,118 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/RoomAllowanceParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.tasks",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTaskListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.task.create",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTaskCreateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.task.claim",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTaskCommandParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.task.start",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTaskCommandParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.task.submit",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTaskCommandParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.task.verify",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTaskCommandParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "room.task.fail",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/RoomTaskCommandParams"
             }
           },
           "required": [
@@ -10632,6 +10914,41 @@
             },
             {
               "properties": {
+                "task": {
+                  "$ref": "#/schemas/success_response/$defs/RoomTaskInfo"
+                },
+                "type": {
+                  "const": "room_task",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "task"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "tasks": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/RoomTaskInfo"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "room_task_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "tasks"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "events": {
                   "items": {
                     "$ref": "#/schemas/success_response/$defs/RoomEventInfo"
@@ -11857,6 +12174,111 @@
             "disputed",
             "stale",
             "superseded"
+          ],
+          "type": "string"
+        },
+        "RoomTaskInfo": {
+          "description": "One unit of answerable work in a room.",
+          "properties": {
+            "attempts": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "blocked_reasons": {
+              "default": [],
+              "description": "Why it is blocked, when it is.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "depends_on": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "epoch": {
+              "description": "Lease generation. A command from an older epoch is refused.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "lease_expires_at_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "lease_holder_instance_id": {
+              "description": "Incarnation holding the lease, while one holds it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "owner_member_id": {
+              "description": "The single seat answerable for it.",
+              "type": "string"
+            },
+            "revision": {
+              "description": "Compare-and-swap token. Send it back as `expected_revision`.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "root_id": {
+              "description": "Objective the task belongs to, so its cost stays attributable.",
+              "type": "string"
+            },
+            "state": {
+              "$ref": "#/schemas/success_response/$defs/RoomTaskStateValue"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "verified": {
+              "description": "Whether a verdict currently stands. Submitted is not verified.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "task_id",
+            "room_id",
+            "title",
+            "root_id",
+            "owner_member_id",
+            "state",
+            "revision",
+            "attempts",
+            "verified"
+          ],
+          "type": "object"
+        },
+        "RoomTaskStateValue": {
+          "description": "Lifecycle position of a task, as the runtime reports it.\n\nMirrors the protocol's own states rather than collapsing them for display:\na client that cannot tell `Submitted` from `Verified` cannot show whether\nanyone actually checked the work.",
+          "enum": [
+            "ready",
+            "leased",
+            "running",
+            "blocked",
+            "submitted",
+            "verified",
+            "failed",
+            "cancelled"
           ],
           "type": "string"
         },

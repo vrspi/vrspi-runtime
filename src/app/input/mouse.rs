@@ -632,6 +632,14 @@ impl AppState {
                         }
                     }
 
+                    // Checked before the workspace rows: the notice sits on the
+                    // list header, which is not a row, and it is the only way
+                    // back from hiding.
+                    if self.hidden_workspace_notice_hit(mouse.column, mouse.row) {
+                        self.show_all_hidden_workspaces();
+                        return None;
+                    }
+
                     if let Some(idx) = self.workspace_at_row(mouse.row) {
                         self.workspace_presses.insert(
                             source_id,
@@ -1125,11 +1133,17 @@ impl AppState {
                             })
                         })
                         .unwrap_or(ContextMenuKind::Workspace { ws_idx: idx });
+                    // Only offered when it would actually work: hiding the one
+                    // visible workspace is refused, and a menu item that does
+                    // nothing reads as a broken feature.
+                    let hide_available = self.visible_workspace_indices().len() > 1
+                        && !self.is_workspace_hidden(idx);
                     self.context_menu = Some(ContextMenuState {
                         kind,
                         x: mouse.column,
                         y: mouse.row,
                         list: MenuListState::new(0),
+                        hide_available,
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1147,6 +1161,7 @@ impl AppState {
                         x: mouse.column,
                         y: mouse.row,
                         list: MenuListState::new(0),
+                        hide_available: false,
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1191,6 +1206,7 @@ impl AppState {
                         x: mouse.column,
                         y: mouse.row,
                         list: MenuListState::new(0),
+                        hide_available: false,
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -3370,6 +3386,7 @@ mod tests {
             x: 2,
             y: 2,
             list: MenuListState::new(0),
+            hide_available: false,
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -3659,6 +3676,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: false,
         }
         .items()
         .iter()
@@ -3679,6 +3697,7 @@ mod tests {
             x: 2,
             y: 2,
             list: MenuListState::new(workspace_menu_row("Close")),
+            hide_available: false,
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -3719,6 +3738,7 @@ mod tests {
             x: 2,
             y: 2,
             list: MenuListState::new(0),
+            hide_available: false,
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -3774,6 +3794,7 @@ mod tests {
             x: 2,
             y: 2,
             list: MenuListState::new(1),
+            hide_available: false,
         });
         app.state.mode = Mode::ContextMenu;
 

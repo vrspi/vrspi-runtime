@@ -918,7 +918,7 @@ impl App {
                         return;
                     }
                 }
-                crate::app::state::RoomTab::Members => {}
+                crate::app::state::RoomTab::Members | crate::app::state::RoomTab::Tasks => {}
             }
         }
         let scroll = crate::ui::room_list_scroll(
@@ -1388,6 +1388,7 @@ mod tests {
             x: 0,
             y: 0,
             list: crate::app::state::MenuListState::new(0),
+            hide_available: false,
         };
         let entry = menu
             .items()
@@ -1673,8 +1674,16 @@ mod tests {
         ));
         assert_eq!(app.state.room_browser.selected, 1);
 
-        // Clicking a tab label switches panes.
-        let members_x = layout.tabs.x + 1 + "conversation".len() as u16 + 3;
+        // Clicking a tab label switches panes. The offset is measured from the
+        // tab list rather than written down, so adding a tab moves the click
+        // target instead of breaking this test.
+        let mut members_x = layout.tabs.x + 1;
+        for tab in RoomTab::ALL {
+            if tab == RoomTab::Members {
+                break;
+            }
+            members_x += tab.label().len() as u16 + 3;
+        }
         app.handle_mouse(super::super::mouse(
             MouseEventKind::Down(MouseButton::Left),
             members_x + 1,

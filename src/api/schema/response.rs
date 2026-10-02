@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use super::agents::AgentInfo;
 use super::common::{ClientWindowTitleReason, NotificationShowReason};
-use super::company::{RoomBudgetInfo, RoomEventInfo, RoomInfo, RoomRecordHit, RoomRecordInfo};
+use super::company::{
+    RoomBudgetInfo, RoomEventInfo, RoomInfo, RoomRecordHit, RoomRecordInfo, RoomTaskInfo,
+};
 use super::events::EventEnvelope;
 use super::integrations::{
     IntegrationInstallResult, IntegrationTarget, IntegrationUninstallResult,
@@ -135,6 +137,12 @@ pub enum ResponseResult {
     },
     RoomEvent {
         event: RoomEventInfo,
+    },
+    RoomTask {
+        task: RoomTaskInfo,
+    },
+    RoomTaskList {
+        tasks: Vec<RoomTaskInfo>,
     },
     RoomEventList {
         events: Vec<RoomEventInfo>,

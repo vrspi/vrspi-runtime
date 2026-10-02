@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 mod agent_view;
 mod agents;
 mod company;
+use company::TaskCommandKind;
 mod env;
 mod integrations;
 mod layouts;
@@ -1147,6 +1148,25 @@ impl App {
             }
             Method::RoomMemberBind(params) => {
                 return self.handle_room_member_bind(request.id, params)
+            }
+            Method::RoomTasks(params) => return self.handle_room_tasks(request.id, params),
+            Method::RoomTaskCreate(params) => {
+                return self.handle_room_task_create(request.id, params)
+            }
+            Method::RoomTaskClaim(params) => {
+                return self.handle_room_task_command(request.id, params, TaskCommandKind::Claim)
+            }
+            Method::RoomTaskStart(params) => {
+                return self.handle_room_task_command(request.id, params, TaskCommandKind::Start)
+            }
+            Method::RoomTaskSubmit(params) => {
+                return self.handle_room_task_command(request.id, params, TaskCommandKind::Submit)
+            }
+            Method::RoomTaskVerify(params) => {
+                return self.handle_room_task_command(request.id, params, TaskCommandKind::Verify)
+            }
+            Method::RoomTaskFail(params) => {
+                return self.handle_room_task_command(request.id, params, TaskCommandKind::Fail)
             }
             Method::RoomPost(params) => return self.handle_room_post(request.id, params),
             Method::RoomAck(params) => return self.handle_room_ack(request.id, params),

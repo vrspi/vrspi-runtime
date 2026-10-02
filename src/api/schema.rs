@@ -193,6 +193,20 @@ pub enum Method {
     RoomMemberGrant(RoomMemberGrantParams),
     #[serde(rename = "room.allowance.extend")]
     RoomAllowanceExtend(RoomAllowanceParams),
+    #[serde(rename = "room.tasks")]
+    RoomTasks(RoomTaskListParams),
+    #[serde(rename = "room.task.create")]
+    RoomTaskCreate(RoomTaskCreateParams),
+    #[serde(rename = "room.task.claim")]
+    RoomTaskClaim(RoomTaskCommandParams),
+    #[serde(rename = "room.task.start")]
+    RoomTaskStart(RoomTaskCommandParams),
+    #[serde(rename = "room.task.submit")]
+    RoomTaskSubmit(RoomTaskCommandParams),
+    #[serde(rename = "room.task.verify")]
+    RoomTaskVerify(RoomTaskCommandParams),
+    #[serde(rename = "room.task.fail")]
+    RoomTaskFail(RoomTaskCommandParams),
     #[serde(rename = "pane.split")]
     PaneSplit(PaneSplitParams),
     #[serde(rename = "pane.swap")]

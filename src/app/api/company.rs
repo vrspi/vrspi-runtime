@@ -471,6 +471,294 @@ impl App {
     }
 }
 
+impl crate::app::App {
+    pub(super) fn handle_room_tasks(
+        &mut self,
+        id: String,
+        params: crate::api::schema::RoomTaskListParams,
+    ) -> String {
+        if self.state.company.room(&params.room_id).is_none() {
+            return encode_company_error(id, CompanyError::RoomNotFound);
+        }
+        let now = current_unix_ms();
+        let ledger = self.state.company.tasks();
+        let tasks: Vec<_> = if params.ready_only {
+            ledger
+                .ready_tasks(now)
+                .into_iter()
+                .filter(|task| task.room_id == params.room_id)
+                .map(task_info)
+                .collect()
+        } else {
+            ledger
+                .tasks()
+                .iter()
+                .filter(|task| task.room_id == params.room_id)
+                .map(task_info)
+                .collect()
+        };
+        responses::encode_success(id, ResponseResult::RoomTaskList { tasks })
+    }
+
+    pub(super) fn handle_room_task_create(
+        &mut self,
+        id: String,
+        params: crate::api::schema::RoomTaskCreateParams,
+    ) -> String {
+        use crate::company::tasks::TaskMutation;
+        let Some(actor) = self.room_actor(&params.room_id, params.caller_pane_id.as_deref()) else {
+            return encode_company_error(id, CompanyError::NotSeated);
+        };
+        // The owner must be a seat in this room: work answerable by nobody, or
+        // by a seat in another room, cannot be scheduled or charged.
+        let owner_known = self
+            .state
+            .company
+            .room(&params.room_id)
+            .is_some_and(|room| room.member(&params.owner_member_id).is_some());
+        if !owner_known {
+            return encode_company_error(id, CompanyError::MemberNotFound);
+        }
+        // Without a stated objective the task opens its own, so its activations
+        // are charged somewhere rather than to whatever was last discussed.
+        let root_id = params
+            .root_id
+            .unwrap_or_else(|| format!("task-root:{}", params.owner_member_id));
+        let mutation = TaskMutation::Create {
+            room_id: params.room_id.clone(),
+            root_id,
+            title: params.title,
+            owner_member_id: params.owner_member_id,
+            depends_on: params.depends_on,
+            artifact_id: None,
+        };
+        let ctx = self.task_context(&actor, params.client_nonce, None, None);
+        self.commit_task_command(id, ctx, mutation)
+    }
+
+    pub(super) fn handle_room_task_command(
+        &mut self,
+        id: String,
+        params: crate::api::schema::RoomTaskCommandParams,
+        kind: TaskCommandKind,
+    ) -> String {
+        use crate::company::tasks::TaskMutation;
+        let Some(actor) = self.room_actor(&params.room_id, params.caller_pane_id.as_deref()) else {
+            return encode_company_error(id, CompanyError::NotSeated);
+        };
+        let evidence = evidence_from_api(params.evidence);
+        let mutation = match kind {
+            TaskCommandKind::Claim => {
+                // A claim names the process that will do the work, so only a
+                // seated agent can make one; the host has no incarnation.
+                let Some(pane_id) = params.caller_pane_id.as_deref() else {
+                    return encode_company_error(id, CompanyError::NotSeated);
+                };
+                let Ok(agent) = self.agent_info_for_target(pane_id) else {
+                    return encode_company_error(id, CompanyError::NotSeated);
+                };
+                let instance_id = self.ensure_collaboration_agent(&agent).instance_id;
+                TaskMutation::Claim {
+                    task_id: params.task_id.clone(),
+                    instance_id,
+                    lease_ms: params.lease_ms.unwrap_or(DEFAULT_TASK_LEASE_MS),
+                }
+            }
+            TaskCommandKind::Start => TaskMutation::Start {
+                task_id: params.task_id.clone(),
+                epoch: params.epoch.unwrap_or_default(),
+            },
+            TaskCommandKind::Submit => TaskMutation::Submit {
+                task_id: params.task_id.clone(),
+                epoch: params.epoch.unwrap_or_default(),
+                artifact: None,
+                evidence,
+            },
+            TaskCommandKind::Verify => TaskMutation::Verify {
+                task_id: params.task_id.clone(),
+                verifier: match &actor {
+                    Actor::Host => crate::company::HOST_HANDLE.to_string(),
+                    Actor::Member { member_id } => member_id.clone(),
+                },
+                rule_version: 1,
+                acceptance: evidence,
+            },
+            TaskCommandKind::Fail => TaskMutation::Fail {
+                task_id: params.task_id.clone(),
+                epoch: params.epoch,
+                reason: params.reason.unwrap_or_else(|| "unspecified".into()),
+            },
+        };
+        let ctx = self.task_context(
+            &actor,
+            params.client_nonce,
+            Some(params.expected_revision),
+            Some(params.task_id),
+        );
+        self.commit_task_command(id, ctx, mutation)
+    }
+
+    /// Builds the command envelope every task mutation carries.
+    fn task_context(
+        &self,
+        actor: &Actor,
+        client_nonce: Option<String>,
+        expected_revision: Option<u64>,
+        task_id: Option<String>,
+    ) -> crate::company::tasks::CommandContext {
+        use crate::company::tasks::{CommandContext, TaskActor};
+        let now = current_unix_ms();
+        CommandContext {
+            actor: match actor {
+                Actor::Host => TaskActor::Host,
+                Actor::Member { member_id } => TaskActor::Member {
+                    member_id: member_id.clone(),
+                },
+            },
+            // A caller that offers no key still gets one, so a command is
+            // never rejected for lacking it; only a caller-supplied key makes
+            // a retry recognisable.
+            idempotency_key: client_nonce
+                .unwrap_or_else(|| format!("auto:{}:{}", task_id.as_deref().unwrap_or("new"), now)),
+            expected_revision,
+            caused_by: None,
+            now_unix_ms: now,
+        }
+    }
+
+    /// Commits one mutation and answers with the task it touched.
+    ///
+    /// A rejection is an error to the caller but still a durable fact: the
+    /// journal already holds its receipt by the time this returns.
+    fn commit_task_command(
+        &mut self,
+        id: String,
+        ctx: crate::company::tasks::CommandContext,
+        mutation: crate::company::tasks::TaskMutation,
+    ) -> String {
+        use crate::company::tasks::CommittedOutcome;
+        let task_id = mutation_task_id(&mutation);
+        match self.apply_task_mutation(ctx, mutation) {
+            Ok(CommittedOutcome::Applied(result)) => {
+                // A create only learns its task id from the event it produced,
+                // so the answer is read back from the command's own result
+                // rather than from what the caller asked for.
+                let task_id =
+                    task_id.or_else(|| result.events.first().map(|event| event.task_id.clone()));
+                let task = task_id
+                    .as_deref()
+                    .and_then(|task_id| self.state.company.tasks().task(task_id))
+                    .map(task_info);
+                match task {
+                    Some(task) => responses::encode_success(id, ResponseResult::RoomTask { task }),
+                    None => responses::encode_error(
+                        id,
+                        "task_not_found",
+                        "the command applied but its task could not be read back".to_string(),
+                    ),
+                }
+            }
+            Ok(CommittedOutcome::Rejected(rejection)) => {
+                responses::encode_error(id, rejection.code(), rejection.error.message())
+            }
+            Err(err) => responses::encode_error(id, err.code(), err.message()),
+        }
+    }
+}
+
+/// How long a claim holds by default: long enough for a real attempt, short
+/// enough that a dead worker frees the task without an operator.
+const DEFAULT_TASK_LEASE_MS: u64 = 10 * 60 * 1000;
+
+/// The task a mutation acts on, so the caller can be answered with it.
+fn mutation_task_id(mutation: &crate::company::tasks::TaskMutation) -> Option<String> {
+    use crate::company::tasks::TaskMutation;
+    match mutation {
+        TaskMutation::Claim { task_id, .. }
+        | TaskMutation::Start { task_id, .. }
+        | TaskMutation::Submit { task_id, .. }
+        | TaskMutation::Verify { task_id, .. }
+        | TaskMutation::Fail { task_id, .. }
+        | TaskMutation::Block { task_id, .. }
+        | TaskMutation::Unblock { task_id, .. }
+        | TaskMutation::AddDependency { task_id, .. } => Some(task_id.clone()),
+        // A create names its task only after the ledger assigns an id.
+        TaskMutation::Create { .. }
+        | TaskMutation::AdvanceArtifact { .. }
+        | TaskMutation::ProposeDecision { .. }
+        | TaskMutation::AcceptDecision { .. } => None,
+    }
+}
+
+/// Which lifecycle command an API request stands for.
+///
+/// One enum rather than seven near-identical handlers: the difference between
+/// them is which mutation they build, not how they are authorised or answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TaskCommandKind {
+    Claim,
+    Start,
+    Submit,
+    Verify,
+    Fail,
+}
+
+fn evidence_from_api(
+    evidence: Vec<crate::api::schema::RoomEvidenceRefValue>,
+) -> Vec<crate::company::tasks::EvidenceRef> {
+    use crate::api::schema::RoomEvidenceKindValue;
+    use crate::company::tasks::{EvidenceKind, EvidenceRef};
+    evidence
+        .into_iter()
+        .map(|item| EvidenceRef {
+            kind: match item.kind {
+                RoomEvidenceKindValue::RawPty => EvidenceKind::RawPty,
+                RoomEvidenceKindValue::Transcript => EvidenceKind::Transcript,
+                RoomEvidenceKindValue::Command => EvidenceKind::Command,
+                RoomEvidenceKindValue::File => EvidenceKind::File,
+            },
+            handle: item.handle,
+            digest: item.digest,
+            artifact_version: item.artifact_version,
+        })
+        .collect()
+}
+
+pub(crate) fn task_info(task: &crate::company::tasks::Task) -> crate::api::schema::RoomTaskInfo {
+    use crate::api::schema::{RoomTaskInfo, RoomTaskStateValue};
+    use crate::company::tasks::TaskState;
+    RoomTaskInfo {
+        task_id: task.task_id.clone(),
+        room_id: task.room_id.clone(),
+        title: task.title.clone(),
+        root_id: task.root_id.clone(),
+        owner_member_id: task.owner_member_id.clone(),
+        state: match task.state {
+            TaskState::Ready => RoomTaskStateValue::Ready,
+            TaskState::Leased => RoomTaskStateValue::Leased,
+            TaskState::Running => RoomTaskStateValue::Running,
+            TaskState::Blocked => RoomTaskStateValue::Blocked,
+            TaskState::Submitted => RoomTaskStateValue::Submitted,
+            TaskState::Verified => RoomTaskStateValue::Verified,
+            TaskState::Failed => RoomTaskStateValue::Failed,
+            TaskState::Cancelled => RoomTaskStateValue::Cancelled,
+        },
+        revision: task.revision,
+        depends_on: task.depends_on.clone(),
+        // Only open blockers: a cleared one is history, and showing it would
+        // make a running task look stuck.
+        blocked_reasons: task
+            .open_blockers()
+            .map(|blocker| blocker.reason.clone())
+            .collect(),
+        lease_holder_instance_id: task.lease.as_ref().map(|lease| lease.instance_id.clone()),
+        lease_expires_at_unix_ms: task.lease.as_ref().map(|lease| lease.expires_at_unix_ms),
+        epoch: task.lease.as_ref().map(|lease| lease.epoch),
+        attempts: task.attempts,
+        verified: task.verification.is_some(),
+    }
+}
+
 fn encode_company_error(id: String, err: CompanyError) -> String {
     responses::encode_error(id, err.code(), err.message())
 }

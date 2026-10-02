@@ -1281,6 +1281,12 @@ pub(super) fn apply_context_menu_action(
         }
         (
             ContextMenuKind::Workspace { ws_idx } | ContextMenuKind::GitWorkspace { ws_idx, .. },
+            Some(crate::app::state::HIDE_WORKSPACE_ITEM),
+        ) => {
+            hide_workspace_from_menu(state, ws_idx);
+        }
+        (
+            ContextMenuKind::Workspace { ws_idx } | ContextMenuKind::GitWorkspace { ws_idx, .. },
             Some("Close" | "Close group"),
         ) => {
             state.selected = ws_idx;
@@ -1762,6 +1768,11 @@ impl App {
             (
                 ContextMenuKind::Workspace { ws_idx }
                 | ContextMenuKind::GitWorkspace { ws_idx, .. },
+                Some(crate::app::state::HIDE_WORKSPACE_ITEM),
+            ) => hide_workspace_from_menu(&mut self.state, ws_idx),
+            (
+                ContextMenuKind::Workspace { ws_idx }
+                | ContextMenuKind::GitWorkspace { ws_idx, .. },
                 Some(crate::app::state::NEW_COMPANY_ROOM_ITEM),
             ) => {
                 self.state.request_new_company_room = Some(ws_idx);
@@ -1957,6 +1968,19 @@ impl AppState {
         let idx = (row - rect.y - 1) as usize;
         global_menu_actions(self).get(idx).copied()
     }
+}
+
+/// Hides a workspace from the menu.
+///
+/// Nothing is announced here on purpose: the toast channel is for agent
+/// notifications and is config-gated, so it can be off. The sidebar's "N
+/// hidden" notice is always drawn instead, which is both the trace that
+/// something is hidden and the click target that brings it back.
+fn hide_workspace_from_menu(state: &mut AppState, ws_idx: usize) {
+    // A refusal means this was the last visible workspace. Leaving it visible
+    // is the whole point, so the menu simply closes.
+    state.hide_workspace(ws_idx);
+    leave_modal(state);
 }
 
 #[cfg(test)]
@@ -2762,6 +2786,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: false,
         };
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 
@@ -2799,6 +2824,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: false,
         };
         let idx = menu
             .items()
@@ -2832,6 +2858,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: false,
         };
         assert!(menu.items().contains(&"Connect workspace agents"));
         assert!(menu.items().contains(&"Call another agent"));
@@ -2854,6 +2881,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: false,
         };
         assert!(!menu.items().contains(&"Call another agent"));
     }
@@ -2945,6 +2973,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: false,
         };
         let idx = menu
             .items()
@@ -3020,6 +3049,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: false,
         };
         let idx = menu
             .items()
@@ -3056,6 +3086,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: false,
         };
         let close_idx = menu
             .items()

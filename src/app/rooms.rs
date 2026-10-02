@@ -8,7 +8,7 @@ use crate::api::schema::AgentStatus;
 use crate::api::schema::Method;
 use crate::app::state::{
     Mode, RoomAgentCandidate, RoomBindState, RoomBrowserState, RoomEventRow, RoomFormField,
-    RoomFormKind, RoomFormState, RoomMemberRow, RoomRecordRow, RoomSnapshot, RoomTab,
+    RoomFormKind, RoomFormState, RoomMemberRow, RoomRecordRow, RoomSnapshot, RoomTab, RoomTaskRow,
     SeatReadiness,
 };
 use crate::company::Actor;
@@ -313,6 +313,11 @@ impl App {
                 .room_browser
                 .selected_room()
                 .map_or(0, |room| room.members.len()),
+            RoomTab::Tasks => self
+                .state
+                .room_browser
+                .selected_room()
+                .map_or(0, |room| room.tasks.len()),
         };
         Some((rows, layout.content.height as usize))
     }
@@ -330,7 +335,7 @@ impl App {
         let max = rows.saturating_sub(visible);
         let step = match self.state.room_browser.tab {
             RoomTab::Conversation => delta * ROWS_PER_STEP,
-            RoomTab::Members | RoomTab::Memory => -delta * ROWS_PER_STEP,
+            RoomTab::Members | RoomTab::Memory | RoomTab::Tasks => -delta * ROWS_PER_STEP,
         };
         let browser = &mut self.state.room_browser;
         browser.content_scroll = browser.content_scroll.saturating_add_signed(step).min(max);
@@ -482,7 +487,8 @@ impl App {
                         .map(|record| record.record_id.clone())
                 })
             }
-            RoomTab::Members => None,
+            // Tasks are one line each; there is nothing to expand.
+            RoomTab::Members | RoomTab::Tasks => None,
         };
         if let Some(id) = id {
             self.toggle_room_expanded(&id);
@@ -671,6 +677,43 @@ impl App {
                             recipients: event.recipients.iter().map(|id| handle_of(id)).collect(),
                         })
                         .collect(),
+                    tasks: {
+                        let ledger = self.state.company.tasks();
+                        let handle_of = |member_id: &str| {
+                            room.member(member_id)
+                                .map(|member| format!("@{}", member.handle))
+                                .unwrap_or_else(|| member_id.to_string())
+                        };
+                        ledger
+                            .tasks()
+                            .iter()
+                            .filter(|task| task.room_id == room.room_id)
+                            .map(|task| RoomTaskRow {
+                                task_id: task.task_id.clone(),
+                                title: task.title.clone(),
+                                owner: handle_of(&task.owner_member_id),
+                                state: format!("{:?}", task.state).to_lowercase(),
+                                verified: task.verification.is_some(),
+                                blocked_reason: task
+                                    .open_blockers()
+                                    .next()
+                                    .map(|blocker| blocker.reason.clone()),
+                                // Only dependencies that are not yet verified
+                                // hold a task back; the rest are history.
+                                waiting_on: task
+                                    .depends_on
+                                    .iter()
+                                    .filter(|dependency| {
+                                        ledger.task(dependency).is_none_or(|dependency| {
+                                            dependency.state
+                                                != crate::company::tasks::TaskState::Verified
+                                        })
+                                    })
+                                    .count(),
+                                attempts: task.attempts,
+                            })
+                            .collect()
+                    },
                     records: room
                         .records
                         .iter()
@@ -953,6 +996,59 @@ mod tests {
         let room = app.state.room_browser.selected_room().expect("room");
         assert_eq!(room.name, "Product team");
         assert_eq!(room.members.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn the_browser_shows_tasks_with_their_owner_and_what_holds_them_back() {
+        use crate::company::tasks::{CommandContext, TaskActor, TaskMutation};
+        let (mut app, room_id) = app_with_room().await;
+        let owner = app
+            .state
+            .company
+            .room(&room_id)
+            .expect("room")
+            .members
+            .first()
+            .expect("seat")
+            .member_id
+            .clone();
+        let mut create = |title: &str, depends_on: Vec<String>, key: &str| {
+            app.apply_task_mutation(
+                CommandContext {
+                    actor: TaskActor::Host,
+                    idempotency_key: key.to_string(),
+                    expected_revision: None,
+                    caused_by: None,
+                    now_unix_ms: 10,
+                },
+                TaskMutation::Create {
+                    room_id: room_id.clone(),
+                    root_id: "root_1".into(),
+                    title: title.to_string(),
+                    owner_member_id: owner.clone(),
+                    depends_on,
+                    artifact_id: None,
+                },
+            )
+            .expect("create");
+        };
+        create("First", Vec::new(), "k1");
+        create("Second", vec!["task_1".into()], "k2");
+
+        app.open_room_browser();
+        let room = app.state.room_browser.selected_room().expect("room");
+        assert_eq!(room.tasks.len(), 2);
+        assert_eq!(room.tasks[0].title, "First");
+        assert_eq!(room.tasks[0].state, "ready");
+        assert!(
+            room.tasks[0].owner.starts_with('@'),
+            "the row resolves the seat to its handle, not its id"
+        );
+        assert_eq!(
+            room.tasks[1].waiting_on, 1,
+            "an unverified dependency is what the second task waits on"
+        );
+        assert!(!room.tasks[1].verified);
     }
 
     #[tokio::test]

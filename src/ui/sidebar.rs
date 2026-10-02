@@ -149,6 +149,7 @@ fn collect_agent_panel_entries_with_runtimes(
     app.workspaces
         .iter()
         .enumerate()
+        .filter(|(_, ws)| !app.hidden_workspace_ids.contains(&ws.id))
         .flat_map(|(ws_idx, ws)| {
             let multi_tab = ws.tabs.len() > 1;
             let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
@@ -251,6 +252,7 @@ fn workspace_attention_priority(state: AgentState, seen: bool) -> u8 {
 fn space_aggregate_state(app: &AppState, key: &str) -> (AgentState, bool) {
     app.workspaces
         .iter()
+        .filter(|ws| !app.hidden_workspace_ids.contains(&ws.id))
         .filter(|ws| ws.worktree_space().is_some_and(|space| space.key == key))
         .map(|ws| ws.aggregate_state(&app.terminals))
         .max_by_key(|(state, seen)| workspace_attention_priority(*state, *seen))
@@ -268,6 +270,7 @@ pub(crate) fn workspace_parent_group_state(
     let member_count = app
         .workspaces
         .iter()
+        .filter(|ws| !app.hidden_workspace_ids.contains(&ws.id))
         .filter(|ws| {
             ws.worktree_space()
                 .is_some_and(|member| member.key == space.key)
@@ -338,6 +341,9 @@ pub(crate) fn workspace_list_entries_expanded(app: &AppState) -> Vec<WorkspaceLi
 fn workspace_list_entries_inner(app: &AppState, force_expanded: bool) -> Vec<WorkspaceListEntry> {
     let mut members_by_key = std::collections::HashMap::<String, Vec<usize>>::new();
     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
+        if app.hidden_workspace_ids.contains(&ws.id) {
+            continue;
+        }
         if let Some(space) = ws.worktree_space() {
             members_by_key
                 .entry(space.key.clone())
@@ -374,6 +380,9 @@ fn workspace_list_entries_inner(app: &AppState, force_expanded: bool) -> Vec<Wor
     let mut emitted_groups = std::collections::HashSet::<String>::new();
     let mut entries = Vec::new();
     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
+        if app.hidden_workspace_ids.contains(&ws.id) {
+            continue;
+        }
         let Some(space) = ws
             .worktree_space()
             .filter(|space| grouped_keys.contains(&space.key))
@@ -1310,6 +1319,32 @@ fn apply_token_style(mut style: Style, patch: crate::config::SidebarTokenStyle) 
     style
 }
 
+/// The "N hidden" notice, when anything is hidden.
+///
+/// Hiding is only safe if it is reversible, and it is only reversible if the
+/// operator can see that something is hidden at all. This is that affordance,
+/// and it is also the click target that brings them back, so the label and the
+/// hit box can never drift apart.
+pub(crate) fn hidden_workspace_notice(app: &AppState) -> Option<String> {
+    let hidden = app.hidden_workspace_count();
+    (hidden > 0).then(|| format!("{hidden} hidden"))
+}
+
+/// Where that notice is drawn, right-aligned on the workspace list header.
+pub(crate) fn hidden_workspace_notice_rect(app: &AppState, list_area: Rect) -> Option<Rect> {
+    let label = hidden_workspace_notice(app)?;
+    let width = label.chars().count() as u16;
+    if list_area.height == 0 || list_area.width < width {
+        return None;
+    }
+    Some(Rect::new(
+        list_area.x + list_area.width - width,
+        list_area.y,
+        width,
+        1,
+    ))
+}
+
 fn render_workspace_list(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -1334,19 +1369,33 @@ fn render_workspace_list(
 
     let list_bottom = area.y + area.height.saturating_sub(1);
     if area.height > 0 {
+        let vrspi_theme = app.theme_name.eq_ignore_ascii_case("vrspi");
+        let heading = if vrspi_theme {
+            " 01 / WORKSPACES"
+        } else {
+            " WORKSPACE"
+        };
+        let heading_style = Style::default().fg(if vrspi_theme { p.subtext0 } else { p.overlay0 });
+        // Heading and notice share one line rather than being drawn on top of
+        // each other: at the minimum sidebar width they would otherwise
+        // collide, and the notice is the half that must survive, because it is
+        // the only way back from hiding.
+        let spans = match hidden_workspace_notice(app) {
+            Some(label) => {
+                let label_width = label.chars().count();
+                let room = (area.width as usize).saturating_sub(label_width);
+                let heading = truncate_end(heading, room);
+                let pad = room.saturating_sub(heading.chars().count());
+                vec![
+                    Span::styled(heading.to_string(), heading_style),
+                    Span::raw(" ".repeat(pad)),
+                    Span::styled(label, Style::default().fg(p.yellow)),
+                ]
+            }
+            None => vec![Span::styled(heading.to_string(), heading_style)],
+        };
         frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled(
-                if app.theme_name.eq_ignore_ascii_case("vrspi") {
-                    " 01 / WORKSPACES"
-                } else {
-                    " WORKSPACE"
-                },
-                Style::default().fg(if app.theme_name.eq_ignore_ascii_case("vrspi") {
-                    p.subtext0
-                } else {
-                    p.overlay0
-                }),
-            )])),
+            Paragraph::new(Line::from(spans)),
             Rect::new(area.x, area.y, area.width, 1),
         );
     }
@@ -2249,6 +2298,116 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         assert!(agent_panel_items(&app, &entries)
             .iter()
             .all(|item| matches!(item, AgentPanelItem::Agent(_))));
+    }
+
+    #[test]
+    fn the_hidden_notice_never_collides_with_the_list_heading() {
+        // The heading and the notice share the header row. At the minimum
+        // sidebar width they do not both fit, and the notice is the half that
+        // has to survive: without it, hiding is irreversible.
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![
+            Workspace::test_new("visible"),
+            Workspace::test_new("hidden"),
+        ];
+        app.ensure_test_terminals();
+        app.theme_name = "vrspi".into();
+        app.hidden_workspace_ids
+            .insert(app.workspaces[1].id.clone());
+
+        for width in [26_u16, 18, 12] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 6)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render_workspace_list(
+                        &app,
+                        &TerminalRuntimeRegistry::new(),
+                        frame,
+                        Rect::new(0, 0, width, 6),
+                        false,
+                    )
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let header: String = (0..width)
+                .map(|x| buffer[(x, 0)].symbol().to_string())
+                .collect::<Vec<_>>()
+                .join("");
+            println!("width {width:>2}: [{header}]");
+            assert!(
+                header.contains("1 hidden"),
+                "the way back must be legible at width {width}, got [{header}]"
+            );
+        }
+    }
+
+    #[test]
+    fn the_sidebar_says_when_something_is_hidden_and_offers_the_way_back() {
+        // Hiding is only safe because it is reversible, and it is only
+        // reversible if the operator can see that anything is hidden at all.
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![
+            Workspace::test_new("visible"),
+            Workspace::test_new("hidden"),
+        ];
+        app.ensure_test_terminals();
+        let area = Rect::new(0, 0, 24, 20);
+
+        assert!(
+            hidden_workspace_notice(&app).is_none(),
+            "nothing hidden, nothing to say"
+        );
+        assert!(hidden_workspace_notice_rect(&app, area).is_none());
+
+        app.hidden_workspace_ids
+            .insert(app.workspaces[1].id.clone());
+        assert_eq!(hidden_workspace_notice(&app).as_deref(), Some("1 hidden"));
+        let rect = hidden_workspace_notice_rect(&app, area).expect("the notice needs a click box");
+        assert_eq!(rect.y, area.y, "it sits on the list header");
+        assert_eq!(
+            rect.x + rect.width,
+            area.x + area.width,
+            "right-aligned, so it never covers a workspace name"
+        );
+
+        // The notice survives a narrow sidebar by truncating the heading next
+        // to it instead; it only disappears when even the label cannot fit,
+        // which is narrower than the sidebar is allowed to get.
+        assert!(hidden_workspace_notice_rect(&app, Rect::new(0, 0, 8, 20)).is_some());
+        assert!(hidden_workspace_notice_rect(&app, Rect::new(0, 0, 4, 20)).is_none());
+    }
+
+    #[test]
+    fn hidden_workspace_is_absent_from_cards_and_agent_rows_but_remains_runtime_state() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![
+            Workspace::test_new("visible"),
+            Workspace::test_new("hidden"),
+        ];
+        app.ensure_test_terminals();
+        let hidden_id = app.workspaces[1].id.clone();
+        let hidden_pane = app.workspaces[1].tabs[0].root_pane;
+        let hidden_terminal = app.workspaces[1].tabs[0].panes[&hidden_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&hidden_terminal)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        app.hidden_workspace_ids.insert(hidden_id.clone());
+
+        let cards = workspace_list_entries(&app);
+        assert!(cards.iter().all(|entry| match entry {
+            WorkspaceListEntry::Workspace { ws_idx, .. } => *ws_idx != 1,
+        }));
+        let agents = agent_panel_entries(&app);
+        assert!(agents.iter().all(|entry| entry.ws_idx != 1));
+        assert_eq!(app.workspaces[1].id, hidden_id);
+        assert_eq!(app.workspaces[1].tabs[0].root_pane, hidden_pane);
+        assert_eq!(
+            app.terminals[&hidden_terminal].detected_agent,
+            Some(Agent::Claude)
+        );
     }
 
     #[test]

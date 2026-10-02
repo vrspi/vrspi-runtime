@@ -1211,6 +1211,7 @@ mod tests {
             sidebar_width: None,
             sidebar_section_split: None,
             collapsed_space_keys: Default::default(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             collaboration: Default::default(),
             company: Default::default(),
         };
@@ -1306,6 +1307,7 @@ mod tests {
             sidebar_width: None,
             sidebar_section_split: None,
             collapsed_space_keys: Default::default(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             collaboration: Default::default(),
             company: Default::default(),
         };
@@ -1415,6 +1417,7 @@ mod tests {
             sidebar_width: None,
             sidebar_section_split: None,
             collapsed_space_keys: Default::default(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             collaboration: Default::default(),
             company: Default::default(),
         };
@@ -1528,6 +1531,7 @@ mod tests {
             sidebar_width: None,
             sidebar_section_split: None,
             collapsed_space_keys: Default::default(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             collaboration: Default::default(),
             company: Default::default(),
         };
@@ -1724,6 +1728,7 @@ mod tests {
             sidebar_width: Some(26),
             sidebar_section_split: Some(0.5),
             collapsed_space_keys: Default::default(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             collaboration: Default::default(),
             company: Default::default(),
         };

@@ -26,6 +26,10 @@ pub struct SessionSnapshot {
     pub sidebar_section_split: Option<f32>,
     #[serde(default)]
     pub collapsed_space_keys: std::collections::HashSet<String>,
+    /// Workspaces hidden from the lists, by stable id. Defaulted so a snapshot
+    /// written before hiding existed restores with everything visible.
+    #[serde(default)]
+    pub hidden_workspace_ids: std::collections::HashSet<String>,
     /// Server-owned mail and lobby state. This is part of the per-session
     /// snapshot so collaboration survives a full server restart.
     #[serde(default)]
@@ -193,6 +197,8 @@ struct RawSessionSnapshot {
     #[serde(default)]
     collapsed_space_keys: std::collections::HashSet<String>,
     #[serde(default)]
+    hidden_workspace_ids: std::collections::HashSet<String>,
+    #[serde(default)]
     collaboration: crate::collaboration::CollaborationState,
     #[serde(default)]
     company: crate::company::CompanyState,
@@ -211,6 +217,7 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         sidebar_width: raw.sidebar_width,
         sidebar_section_split: raw.sidebar_section_split,
         collapsed_space_keys: raw.collapsed_space_keys,
+        hidden_workspace_ids: raw.hidden_workspace_ids,
         collaboration: raw.collaboration,
         company: raw.company,
     })
@@ -275,6 +282,7 @@ pub fn capture(
     sidebar_width: u16,
     sidebar_section_split: f32,
     collapsed_space_keys: std::collections::HashSet<String>,
+    hidden_workspace_ids: std::collections::HashSet<String>,
     collaboration: &crate::collaboration::CollaborationState,
     company: &crate::company::CompanyState,
 ) -> SessionSnapshot {
@@ -289,6 +297,7 @@ pub fn capture(
         sidebar_width: Some(sidebar_width),
         sidebar_section_split: Some(sidebar_section_split),
         collapsed_space_keys,
+        hidden_workspace_ids,
         collaboration: collaboration.clone(),
         company: company.clone(),
     }
@@ -559,6 +568,7 @@ mod tests {
             state.sidebar_width,
             state.sidebar_section_split,
             state.collapsed_space_keys.clone(),
+            state.hidden_workspace_ids.clone(),
             &state.collaboration,
             &state.company,
         )
@@ -625,6 +635,7 @@ mod tests {
             sidebar_width: Some(26),
             sidebar_section_split: Some(0.5),
             collapsed_space_keys: std::collections::HashSet::new(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             collaboration: Default::default(),
             company: Default::default(),
         };
@@ -714,6 +725,7 @@ mod tests {
             sidebar_width: Some(26),
             sidebar_section_split: Some(0.5),
             collapsed_space_keys: std::collections::HashSet::new(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             collaboration: Default::default(),
             company: Default::default(),
             version: SNAPSHOT_VERSION,
@@ -888,6 +900,38 @@ mod tests {
         assert_eq!(snapshot.workspaces[0].custom_name.as_deref(), Some("one"));
         assert_eq!(snapshot.active, Some(0));
         assert_eq!(snapshot.selected, 0);
+    }
+
+    #[test]
+    fn capture_contract_tracks_hidden_workspaces() {
+        let mut state = state_with_workspaces(&["one", "two"]);
+        let hidden_id = state.workspaces[1].id.clone();
+        state.hidden_workspace_ids.insert(hidden_id.clone());
+
+        let snapshot = capture_from_state(&state);
+        assert!(
+            snapshot.hidden_workspace_ids.contains(&hidden_id),
+            "hiding is a preference that must survive a restart"
+        );
+        assert_eq!(
+            snapshot.workspaces.len(),
+            2,
+            "a hidden workspace is still saved: hiding is not closing"
+        );
+    }
+
+    #[test]
+    fn a_snapshot_written_before_hiding_existed_restores_everything_visible() {
+        // The field is additive, so an older session must load rather than
+        // fail, and must not come back with a workspace mysteriously missing.
+        let json = r#"{
+            "version": 1,
+            "workspaces": [],
+            "active": null,
+            "selected": 0
+        }"#;
+        let snapshot = parse_snapshot(json).expect("an older snapshot still loads");
+        assert!(snapshot.hidden_workspace_ids.is_empty());
     }
 
     #[test]
@@ -1278,6 +1322,7 @@ mod tests {
             sidebar_width: Some(26),
             sidebar_section_split: Some(0.5),
             collapsed_space_keys: std::collections::HashSet::new(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             collaboration: Default::default(),
             company: Default::default(),
         };

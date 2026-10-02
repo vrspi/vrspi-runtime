@@ -23,6 +23,29 @@ impl AppState {
         detail_area
     }
 
+    /// Whether this click landed on the sidebar's "N hidden" notice.
+    ///
+    /// Hit-tested from the same rect the notice is drawn from, so the label and
+    /// the click target cannot drift apart.
+    pub(super) fn hidden_workspace_notice_hit(&self, col: u16, row: u16) -> bool {
+        let area = self.workspace_list_rect();
+        let Some(rect) = crate::ui::hidden_workspace_notice_rect(self, area) else {
+            return false;
+        };
+        col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
+    }
+
+    /// Brings every hidden workspace back.
+    ///
+    /// All of them rather than a picker: this is the only way back, so it has
+    /// to work in one click from the only affordance that says anything is
+    /// hidden. A picker that chooses between them can come later.
+    pub(super) fn show_all_hidden_workspaces(&mut self) {
+        for (id, _) in self.hidden_workspaces() {
+            self.show_workspace(&id);
+        }
+    }
+
     pub(super) fn workspace_list_scrollbar_target_at(
         &self,
         col: u16,

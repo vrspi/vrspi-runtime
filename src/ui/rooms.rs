@@ -538,6 +538,7 @@ pub(super) fn render_room_browser(app: &AppState, frame: &mut Frame, area: Rect)
         RoomView::Bind => render_bind_picker(app, frame, layout.content),
         RoomView::Browse => match app.room_browser.tab {
             RoomTab::Conversation => render_conversation(app, frame, layout.content),
+            RoomTab::Tasks => render_tasks(app, frame, layout.content),
             RoomTab::Members => render_members(app, frame, layout.content),
             RoomTab::Memory => render_memory(app, frame, layout.content),
         },
@@ -799,6 +800,90 @@ fn render_conversation(app: &AppState, frame: &mut Frame, area: Rect) {
         .take(visible)
         .map(|row| row.line)
         .collect();
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// The task list: one line per task, most recent first.
+///
+/// State is shown as the protocol names it rather than collapsed into
+/// done/not-done, because `submitted` and `verified` are the distinction the
+/// whole protocol exists to keep: one is a claim, the other is a checked
+/// verdict.
+fn render_tasks(app: &AppState, frame: &mut Frame, area: Rect) {
+    let Some(room) = app.room_browser.selected_room() else {
+        return;
+    };
+    if room.tasks.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                " no tasks yet — agents create them with `vrspi room task create`",
+                Style::default().fg(app.palette.overlay0),
+            ))),
+            area,
+        );
+        return;
+    }
+    let scroll = app
+        .room_browser
+        .content_scroll
+        .min(room.tasks.len().saturating_sub(area.height.max(1) as usize));
+    // id + owner + state + badge all need room; whatever is left is the
+    // title, which is the one field that can be truncated without losing a
+    // fact the operator cannot recover by looking elsewhere.
+    let title_width = (area.width as usize).saturating_sub(50).max(12);
+    let lines = room
+        .tasks
+        .iter()
+        .skip(scroll)
+        .take(area.height as usize)
+        .map(|task| {
+            let state_style = Style::default().fg(match task.state.as_str() {
+                "verified" => app.palette.green,
+                "running" | "leased" => app.palette.yellow,
+                "blocked" | "failed" => app.palette.red,
+                "submitted" => app.palette.accent,
+                _ => app.palette.overlay0,
+            });
+            let mut spans = vec![
+                Span::styled(
+                    format!(" {:<8}", truncate_end(&task.task_id, 8)),
+                    Style::default().fg(app.palette.overlay0),
+                ),
+                Span::styled(
+                    format!(
+                        "{:<width$}",
+                        truncate_end(&task.title, title_width),
+                        width = title_width
+                    ),
+                    Style::default().fg(app.palette.text),
+                ),
+                Span::styled(
+                    format!(" {:<12}", truncate_end(&task.owner, 12)),
+                    Style::default().fg(app.palette.accent),
+                ),
+                Span::styled(format!("{:<10}", task.state), state_style),
+            ];
+            // What the state alone does not say: why it cannot move, and
+            // whether anyone has tried before.
+            if let Some(reason) = task.blocked_reason.as_deref() {
+                spans.push(Span::styled(
+                    truncate_end(reason, 18).to_string(),
+                    Style::default().fg(app.palette.red),
+                ));
+            } else if task.waiting_on > 0 {
+                spans.push(Span::styled(
+                    format!("waiting on {}", task.waiting_on),
+                    Style::default().fg(app.palette.yellow),
+                ));
+            } else if task.attempts > 1 {
+                spans.push(Span::styled(
+                    format!("attempt {}", task.attempts),
+                    Style::default().fg(app.palette.overlay0),
+                ));
+            }
+            Line::from(spans)
+        })
+        .collect::<Vec<_>>();
     frame.render_widget(Paragraph::new(lines), area);
 }
 
@@ -1470,7 +1555,9 @@ fn render_footer(app: &AppState, frame: &mut Frame, area: Rect, chrome: RoomChro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::{RoomEventRow, RoomMemberRow, RoomRecordRow, RoomSnapshot};
+    use crate::app::state::{
+        RoomEventRow, RoomMemberRow, RoomRecordRow, RoomSnapshot, RoomTaskRow,
+    };
     use ratatui::{backend::TestBackend, Terminal};
 
     /// Chrome for a browsing operator with a room selected, which is what
@@ -1581,6 +1668,16 @@ mod tests {
                     accepted: false,
                 },
             ],
+            tasks: vec![RoomTaskRow {
+                task_id: "task_1".into(),
+                title: "Ship the tasks view".into(),
+                owner: "@Codex".into(),
+                state: "running".into(),
+                verified: false,
+                blocked_reason: None,
+                waiting_on: 0,
+                attempts: 1,
+            }],
         }
     }
 
@@ -1974,6 +2071,94 @@ mod tests {
         assert!(text.contains("offline"));
         assert!(text.contains("working"));
         assert!(!text.contains("bound "), "the old catch-all label is gone");
+    }
+
+    #[test]
+    fn the_task_list_separates_a_claim_from_a_verdict() {
+        // The protocol's whole point is that submitted is not verified, so the
+        // view must never render them alike.
+        let mut app = app_with_room();
+        app.room_browser.tab = RoomTab::Tasks;
+        let room = app.room_browser.rooms.get_mut(0).expect("room");
+        room.tasks = vec![
+            RoomTaskRow {
+                task_id: "task_1".into(),
+                title: "Wire the API".into(),
+                owner: "@Codex".into(),
+                state: "submitted".into(),
+                verified: false,
+                blocked_reason: None,
+                waiting_on: 0,
+                attempts: 1,
+            },
+            RoomTaskRow {
+                task_id: "task_2".into(),
+                title: "Review it".into(),
+                owner: "@Sol".into(),
+                state: "verified".into(),
+                verified: true,
+                blocked_reason: None,
+                waiting_on: 0,
+                attempts: 1,
+            },
+        ];
+        let text = rendered(&app);
+        assert!(text.contains("submitted"), "a claim shows as a claim");
+        assert!(text.contains("verified"), "a verdict shows as a verdict");
+        assert!(text.contains("Wire the API") && text.contains("@Codex"));
+    }
+
+    #[test]
+    fn a_task_says_why_it_cannot_move() {
+        // A blocked or waiting task that renders identically to a ready one
+        // sends an operator looking for a worker that was never the problem.
+        let mut app = app_with_room();
+        app.room_browser.tab = RoomTab::Tasks;
+        let room = app.room_browser.rooms.get_mut(0).expect("room");
+        room.tasks = vec![
+            RoomTaskRow {
+                task_id: "task_1".into(),
+                title: "Publish docs".into(),
+                owner: "@Codex".into(),
+                state: "ready".into(),
+                verified: false,
+                blocked_reason: None,
+                waiting_on: 2,
+                attempts: 0,
+            },
+            RoomTaskRow {
+                task_id: "task_2".into(),
+                title: "Deploy".into(),
+                owner: "@Sol".into(),
+                state: "blocked".into(),
+                verified: false,
+                blocked_reason: Some("waiting on review".into()),
+                waiting_on: 0,
+                attempts: 1,
+            },
+        ];
+        let text = rendered(&app);
+        assert!(
+            text.contains("waiting on 2"),
+            "unmet dependencies are visible"
+        );
+        assert!(
+            text.contains("waiting on review"),
+            "the reason is visible next to the blocked state"
+        );
+    }
+
+    #[test]
+    fn an_empty_task_list_says_so_instead_of_rendering_nothing() {
+        let mut app = app_with_room();
+        app.room_browser.tab = RoomTab::Tasks;
+        app.room_browser
+            .rooms
+            .get_mut(0)
+            .expect("room")
+            .tasks
+            .clear();
+        assert!(rendered(&app).contains("no tasks yet"));
     }
 
     #[test]

@@ -6,10 +6,11 @@
 
 use crate::api::schema::{
     Method, Request, RoomAllowanceParams, RoomCreateParams, RoomDeliveryAckParams,
-    RoomEventListParams, RoomLifecycleParams, RoomLifecycleValue, RoomListParams,
-    RoomMemberAddParams, RoomMemberBindParams, RoomMemberGrantParams, RoomMemberTargetParams,
-    RoomMemoryPutParams, RoomMemorySearchParams, RoomMemoryTargetParams, RoomPostParams,
-    RoomTargetParams,
+    RoomEventListParams, RoomEvidenceKindValue, RoomEvidenceRefValue, RoomLifecycleParams,
+    RoomLifecycleValue, RoomListParams, RoomMemberAddParams, RoomMemberBindParams,
+    RoomMemberGrantParams, RoomMemberTargetParams, RoomMemoryPutParams, RoomMemorySearchParams,
+    RoomMemoryTargetParams, RoomPostParams, RoomTargetParams, RoomTaskCommandParams,
+    RoomTaskCreateParams, RoomTaskListParams,
 };
 
 /// Pane ID of the calling agent, when the caller asked to act as its seat.
@@ -28,6 +29,44 @@ fn agent_caller(args: &[String]) -> Option<String> {
     .filter(|value| !value.trim().is_empty())
 }
 
+/// Reads `--evidence kind:handle:digest`, repeatable.
+///
+/// Submitting and verifying both require proof, so this is deliberately not
+/// optional sugar: without it those commands are refused by the protocol.
+fn evidence_from_flags(args: &[String]) -> Vec<RoomEvidenceRefValue> {
+    let mut out = Vec::new();
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        let value = if arg == "--evidence" {
+            match iter.next() {
+                Some(value) => value.clone(),
+                None => break,
+            }
+        } else if let Some(rest) = arg.strip_prefix("--evidence=") {
+            rest.to_string()
+        } else {
+            continue;
+        };
+        let mut parts = value.splitn(3, ':');
+        let (Some(kind), Some(handle)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let kind = match kind {
+            "raw_pty" | "raw" => RoomEvidenceKindValue::RawPty,
+            "transcript" => RoomEvidenceKindValue::Transcript,
+            "file" => RoomEvidenceKindValue::File,
+            _ => RoomEvidenceKindValue::Command,
+        };
+        out.push(RoomEvidenceRefValue {
+            kind,
+            handle: handle.to_string(),
+            digest: parts.next().unwrap_or("").to_string(),
+            artifact_version: None,
+        });
+    }
+    out
+}
+
 /// Positional arguments only.
 ///
 /// A `--flag value` pair consumes its value, so an objective like
@@ -39,6 +78,13 @@ fn without_flags(args: &[String]) -> Vec<String> {
         "--workspace",
         "--role",
         "--root",
+        "--key",
+        "--owner",
+        "--depends-on",
+        "--epoch",
+        "--reason",
+        "--lease-ms",
+        "--evidence",
         "--after",
         "--limit",
         "--record",
@@ -141,6 +187,56 @@ pub(crate) fn run_room_command(args: &[String]) -> std::io::Result<i32> {
             may_broadcast: !args.iter().any(|a| a == "--revoke"),
             caller_pane_id,
         }),
+        ["task", "list", room_id] => Method::RoomTasks(RoomTaskListParams {
+            room_id: (*room_id).to_string(),
+            ready_only: args.iter().any(|a| a == "--ready"),
+        }),
+        ["task", "create", room_id, title] => Method::RoomTaskCreate(RoomTaskCreateParams {
+            room_id: (*room_id).to_string(),
+            title: (*title).to_string(),
+            owner_member_id: flag_value(args, "--owner").unwrap_or_default(),
+            root_id: flag_value(args, "--root"),
+            depends_on: flag_value(args, "--depends-on")
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|part| !part.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            client_nonce: flag_value(args, "--key"),
+            caller_pane_id,
+        }),
+        ["task", command @ ("claim" | "start" | "submit" | "verify" | "fail"), room_id, task_id] => {
+            let Some(expected_revision) =
+                flag_value(args, "--revision").and_then(|value| value.parse::<u64>().ok())
+            else {
+                eprintln!(
+                    "room task {command} needs --revision N, the revision you read; it is refused rather than applied if the task moved since"
+                );
+                return Ok(2);
+            };
+            let params = RoomTaskCommandParams {
+                room_id: (*room_id).to_string(),
+                task_id: (*task_id).to_string(),
+                expected_revision,
+                epoch: flag_value(args, "--epoch").and_then(|value| value.parse().ok()),
+                reason: flag_value(args, "--reason"),
+                lease_ms: flag_value(args, "--lease-ms").and_then(|value| value.parse().ok()),
+                evidence: evidence_from_flags(args),
+                client_nonce: flag_value(args, "--key"),
+                caller_pane_id,
+            };
+            match *command {
+                "claim" => Method::RoomTaskClaim(params),
+                "start" => Method::RoomTaskStart(params),
+                "submit" => Method::RoomTaskSubmit(params),
+                "verify" => Method::RoomTaskVerify(params),
+                _ => Method::RoomTaskFail(params),
+            }
+        }
         ["post", room_id, body] => Method::RoomPost(RoomPostParams {
             room_id: (*room_id).to_string(),
             body: (*body).to_string(),
@@ -253,6 +349,12 @@ fn print_room_help() {
     eprintln!("  {name} room memory search <room_id> <query> [--limit N]");
     eprintln!("  {name} room memory get|accept|delete <room_id> <record_id> [--as-agent]");
     eprintln!("  {name} room allowance extend <room_id> <root_id> <additional>");
+    eprintln!("  {name} room task list <room_id> [--ready]");
+    eprintln!(
+        "  {name} room task create <room_id> <title> --owner MEMBER [--root ID] [--depends-on A,B]"
+    );
+    eprintln!("  {name} room task claim|start|submit|verify|fail <room_id> <task_id> --revision N");
+    eprintln!("    [--epoch N] [--reason TEXT] [--lease-ms N] [--evidence kind:handle:digest]");
     eprintln!();
     eprintln!("  Mention members as @handle inside a post body to address them.");
     eprintln!("  --key makes a post safe to retry: the same key returns the first event");
@@ -307,6 +409,39 @@ mod tests {
         let b = args(&["list", "--workspace=w2"]);
         assert_eq!(flag_value(&b, "--workspace").as_deref(), Some("w2"));
         assert_eq!(flag_value(&b, "--missing"), None);
+    }
+
+    #[test]
+    fn every_value_flag_the_commands_read_is_declared() {
+        // Regression: --key was read by `post` but missing from VALUE_FLAGS,
+        // so its value survived as a fourth positional and the command fell
+        // through to the usage text. Any flag read with flag_value must be
+        // declared here, so this walks the file rather than one example.
+        let source = include_str!("room.rs");
+        for (index, _) in source.match_indices("flag_value(args, \"") {
+            let rest = &source[index + "flag_value(args, \"".len()..];
+            let flag = &rest[..rest.find('"').expect("flag literal is closed")];
+            let flag = format!("--{}", flag.trim_start_matches("--"));
+            assert!(
+                without_flags(&args(&["post", "room_1", "body", &flag, "value"]))
+                    == vec!["post", "room_1", "body"],
+                "{flag} is read as a value flag but is not declared in VALUE_FLAGS"
+            );
+        }
+    }
+
+    #[test]
+    fn a_post_keeps_its_body_when_a_retry_key_is_given() {
+        let parsed = without_flags(&args(&[
+            "post",
+            "room_1",
+            "@Codex hello",
+            "--key",
+            "demo-1",
+            "--root",
+            "evt_1",
+        ]));
+        assert_eq!(parsed, vec!["post", "room_1", "@Codex hello"]);
     }
 
     #[test]

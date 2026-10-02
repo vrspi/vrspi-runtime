@@ -261,3 +261,130 @@ pub struct RoomBudgetInfo {
     pub remaining: u32,
     pub paused: bool,
 }
+
+/// Lifecycle position of a task, as the runtime reports it.
+///
+/// Mirrors the protocol's own states rather than collapsing them for display:
+/// a client that cannot tell `Submitted` from `Verified` cannot show whether
+/// anyone actually checked the work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RoomTaskStateValue {
+    Ready,
+    Leased,
+    Running,
+    Blocked,
+    Submitted,
+    Verified,
+    Failed,
+    Cancelled,
+}
+
+/// One unit of answerable work in a room.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoomTaskInfo {
+    pub task_id: String,
+    pub room_id: String,
+    pub title: String,
+    /// Objective the task belongs to, so its cost stays attributable.
+    pub root_id: String,
+    /// The single seat answerable for it.
+    pub owner_member_id: String,
+    pub state: RoomTaskStateValue,
+    /// Compare-and-swap token. Send it back as `expected_revision`.
+    pub revision: u64,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    /// Why it is blocked, when it is.
+    #[serde(default)]
+    pub blocked_reasons: Vec<String>,
+    /// Incarnation holding the lease, while one holds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_holder_instance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at_unix_ms: Option<u64>,
+    /// Lease generation. A command from an older epoch is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<u64>,
+    pub attempts: u32,
+    /// Whether a verdict currently stands. Submitted is not verified.
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoomTaskListParams {
+    pub room_id: String,
+    /// Only tasks whose dependencies are met and whose lease has not lapsed.
+    #[serde(default)]
+    pub ready_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoomTaskCreateParams {
+    pub room_id: String,
+    pub title: String,
+    /// Seat answerable for the work.
+    pub owner_member_id: String,
+    /// Objective to charge it to. Omitting it starts a new one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_id: Option<String>,
+    /// Tasks that must be verified before this one is ready.
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    /// Makes the command safe to retry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_pane_id: Option<String>,
+}
+
+/// What a piece of evidence points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RoomEvidenceKindValue {
+    RawPty,
+    Transcript,
+    Command,
+    File,
+}
+
+/// A pointer to stored proof, with the digest it had when it was cited.
+///
+/// Submitting and verifying both require at least one, because a claim that
+/// work is done is not the same as something a later reader can check.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoomEvidenceRefValue {
+    pub kind: RoomEvidenceKindValue,
+    /// Opaque locator: a path, a pane id, a record id.
+    pub handle: String,
+    pub digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_version: Option<u64>,
+}
+
+/// A command against one existing task.
+///
+/// `expected_revision` is the revision the caller read. A mismatch is refused
+/// rather than applied, so two agents acting on stale reads cannot both win.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoomTaskCommandParams {
+    pub room_id: String,
+    pub task_id: String,
+    pub expected_revision: u64,
+    /// Required where the protocol demands a lease: start and submit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<u64>,
+    /// Why the task failed. Required by `room.task.fail`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// How long the claim should hold, in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_ms: Option<u64>,
+    /// Proof, required by submit and verify.
+    #[serde(default)]
+    pub evidence: Vec<RoomEvidenceRefValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_pane_id: Option<String>,
+}

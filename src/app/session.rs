@@ -52,6 +52,7 @@ impl App {
                 self.state.sidebar_width,
                 self.state.sidebar_section_split,
                 self.state.collapsed_space_keys.clone(),
+                self.state.hidden_workspace_ids.clone(),
                 &self.state.collaboration,
                 &self.state.company,
             );

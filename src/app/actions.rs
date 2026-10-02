@@ -390,6 +390,11 @@ impl AppState {
         let query_kind = navigator_query_kind(&query, self.navigator.state_filter);
         let mut rows = Vec::new();
         for (ws_idx, ws) in self.workspaces.iter().enumerate() {
+            // A hidden workspace is hidden everywhere: finding it by search
+            // and jumping into it would contradict the row that is not there.
+            if self.hidden_workspace_ids.contains(&ws.id) {
+                continue;
+            }
             let workspace_label = ws.display_name_from(&self.terminals, terminal_runtimes);
             let activity = workspace_activity_summary(ws, &self.terminals);
             let workspace_search_text = format!("{workspace_label} {activity}").to_lowercase();
@@ -1296,6 +1301,112 @@ impl AppState {
         changed
     }
 
+    /// Whether this workspace is hidden from the lists.
+    ///
+    /// Hidden is a display fact only: the workspace keeps running, and every
+    /// caller that asks this is deciding what to draw or where to move next,
+    /// never whether work may proceed.
+    pub(crate) fn is_workspace_hidden(&self, ws_idx: usize) -> bool {
+        self.workspaces
+            .get(ws_idx)
+            .is_some_and(|workspace| self.hidden_workspace_ids.contains(&workspace.id))
+    }
+
+    /// Indices of the workspaces the operator can currently see, in order.
+    pub(crate) fn visible_workspace_indices(&self) -> Vec<usize> {
+        (0..self.workspaces.len())
+            .filter(|&ws_idx| !self.is_workspace_hidden(ws_idx))
+            .collect()
+    }
+
+    /// Hidden workspaces as `(id, display label)`, for the picker that is the
+    /// only way back to them.
+    pub(crate) fn hidden_workspaces(&self) -> Vec<(String, String)> {
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        self.workspaces
+            .iter()
+            .filter(|workspace| self.hidden_workspace_ids.contains(&workspace.id))
+            .map(|workspace| {
+                (
+                    workspace.id.clone(),
+                    workspace.display_name_from(&self.terminals, &terminal_runtimes),
+                )
+            })
+            .collect()
+    }
+
+    pub(crate) fn hidden_workspace_count(&self) -> usize {
+        self.workspaces
+            .iter()
+            .filter(|workspace| self.hidden_workspace_ids.contains(&workspace.id))
+            .count()
+    }
+
+    /// Hides a workspace from every list without touching what it is doing.
+    ///
+    /// Returns whether anything changed. The last visible workspace cannot be
+    /// hidden: it would leave the operator with no rows at all, and the way
+    /// back is a row.
+    pub(crate) fn hide_workspace(&mut self, ws_idx: usize) -> bool {
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let id = workspace.id.clone();
+        if self.hidden_workspace_ids.contains(&id) {
+            return false;
+        }
+        if self.visible_workspace_indices().len() <= 1 {
+            return false;
+        }
+        self.hidden_workspace_ids.insert(id);
+        self.rehome_onto_visible_workspace();
+        self.mark_session_dirty();
+        true
+    }
+
+    /// Brings a hidden workspace back, by its stable id.
+    ///
+    /// Only the id is forgotten. Tabs, panes and agents were never changed, so
+    /// their rows return exactly as they were.
+    pub(crate) fn show_workspace(&mut self, workspace_id: &str) -> bool {
+        if !self.hidden_workspace_ids.remove(workspace_id) {
+            return false;
+        }
+        self.mark_session_dirty();
+        true
+    }
+
+    /// Moves `active` and `selected` onto visible workspaces.
+    ///
+    /// Called after hiding and after restoring a snapshot, because a snapshot
+    /// can name a hidden workspace as the selected one and nothing else would
+    /// notice: the operator would be pointed at a row that is not drawn.
+    pub(crate) fn rehome_onto_visible_workspace(&mut self) {
+        let visible = self.visible_workspace_indices();
+        let Some(&first) = visible.first() else {
+            // Everything hidden is not a state the actions can produce, and
+            // recovering by revealing one workspace is better than pointing
+            // the operator at nothing.
+            return;
+        };
+        let nearest = |from: usize| {
+            visible
+                .iter()
+                .copied()
+                .min_by_key(|&idx| idx.abs_diff(from))
+                .unwrap_or(first)
+        };
+        if self.is_workspace_hidden(self.selected) || self.selected >= self.workspaces.len() {
+            self.selected = nearest(self.selected);
+            self.ensure_workspace_visible(self.selected);
+        }
+        if let Some(active) = self.active {
+            if self.is_workspace_hidden(active) {
+                self.active = Some(nearest(active));
+            }
+        }
+    }
+
     pub(crate) fn visible_workspace_order(&self) -> Vec<usize> {
         // Mobile always shows the worktree tree expanded, so its visible order
         // must ignore collapse state to match what the switcher renders.
@@ -1310,8 +1421,20 @@ impl AppState {
                 crate::ui::WorkspaceListEntry::Workspace { ws_idx, .. } => ws_idx,
             })
             .collect::<Vec<_>>();
+        // Filtered here rather than only in the sidebar, so navigation cannot
+        // step onto a workspace the operator cannot see even if a list is
+        // built some other way.
+        let order: Vec<usize> = order
+            .into_iter()
+            .filter(|&ws_idx| !self.is_workspace_hidden(ws_idx))
+            .collect();
         if order.is_empty() {
-            (0..self.workspaces.len()).collect()
+            let visible = self.visible_workspace_indices();
+            if visible.is_empty() {
+                (0..self.workspaces.len()).collect()
+            } else {
+                visible
+            }
         } else {
             order
         }
@@ -3439,6 +3562,121 @@ mod tests {
             state.mode = Mode::Terminal;
         }
         state
+    }
+
+    #[test]
+    fn hiding_a_workspace_removes_it_from_navigation_but_not_from_the_runtime() {
+        let mut state = app_with_workspaces(&["one", "two", "three"]);
+        let hidden_id = state.workspaces[1].id.clone();
+        let panes_before = state.workspaces[1].tabs[0].panes.len();
+
+        assert!(state.hide_workspace(1));
+        assert!(state.is_workspace_hidden(1));
+        assert_eq!(state.visible_workspace_indices(), vec![0, 2]);
+        assert!(
+            !state.visible_workspace_order().contains(&1),
+            "navigation must not step onto a workspace with no row"
+        );
+        assert!(
+            !state.navigator_rows().iter().any(
+                |row| row.target == crate::app::state::NavigatorTarget::Workspace { ws_idx: 1 }
+            ),
+            "search must not offer a way into a hidden workspace"
+        );
+
+        // The point of hiding rather than closing: the workspace is still
+        // there, still owns its panes, and can still finish its work.
+        assert_eq!(state.workspaces.len(), 3);
+        assert_eq!(state.workspaces[1].tabs[0].panes.len(), panes_before);
+        assert_eq!(state.hidden_workspace_count(), 1);
+        assert_eq!(
+            state.hidden_workspaces().first().map(|(id, _)| id.clone()),
+            Some(hidden_id.clone())
+        );
+
+        assert!(state.show_workspace(&hidden_id));
+        assert_eq!(state.visible_workspace_indices(), vec![0, 1, 2]);
+        assert!(
+            !state.show_workspace(&hidden_id),
+            "showing twice is a no-op"
+        );
+    }
+
+    #[test]
+    fn hiding_the_workspace_in_view_moves_the_operator_somewhere_visible() {
+        let mut state = app_with_workspaces(&["one", "two", "three"]);
+        state.active = Some(1);
+        state.selected = 1;
+
+        assert!(state.hide_workspace(1));
+        assert!(
+            !state.is_workspace_hidden(state.selected),
+            "selection must never point at a row that is not drawn"
+        );
+        assert_eq!(
+            state.active.map(|idx| state.is_workspace_hidden(idx)),
+            Some(false),
+            "the active workspace must be one the operator can see"
+        );
+    }
+
+    #[test]
+    fn showing_hidden_workspaces_restores_every_one_of_them() {
+        // The notice is a single click target, so it has to bring back
+        // everything it accounts for.
+        let mut state = app_with_workspaces(&["one", "two", "three"]);
+        assert!(state.hide_workspace(1));
+        assert!(state.hide_workspace(2));
+        assert_eq!(state.hidden_workspace_count(), 2);
+
+        for (id, _) in state.hidden_workspaces() {
+            state.show_workspace(&id);
+        }
+        assert_eq!(state.hidden_workspace_count(), 0);
+        assert_eq!(state.visible_workspace_indices(), vec![0, 1, 2]);
+        state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn the_last_visible_workspace_cannot_be_hidden() {
+        let mut state = app_with_workspaces(&["one", "two"]);
+        assert!(state.hide_workspace(1));
+        assert!(
+            !state.hide_workspace(0),
+            "hiding everything would leave no row to click to get anything back"
+        );
+        assert_eq!(state.visible_workspace_indices(), vec![0]);
+    }
+
+    #[test]
+    fn hiding_follows_the_workspace_through_a_reorder() {
+        // Keyed by id rather than position: moving workspaces around must not
+        // transfer hiddenness to whoever now sits at that index.
+        let mut state = app_with_workspaces(&["one", "two", "three"]);
+        let hidden_id = state.workspaces[2].id.clone();
+        assert!(state.hide_workspace(2));
+
+        state.workspaces.swap(0, 2);
+        assert_eq!(state.workspaces[0].id, hidden_id);
+        assert!(state.is_workspace_hidden(0));
+        assert!(!state.is_workspace_hidden(2));
+        assert_eq!(state.visible_workspace_indices(), vec![1, 2]);
+    }
+
+    #[test]
+    fn a_hidden_workspace_that_is_restored_as_selected_is_rehomed() {
+        // A snapshot can name a hidden workspace as the selected one; nothing
+        // else would notice, and the operator would be pointed at nothing.
+        let mut state = app_with_workspaces(&["one", "two"]);
+        state
+            .hidden_workspace_ids
+            .insert(state.workspaces[0].id.clone());
+        state.selected = 0;
+        state.active = Some(0);
+
+        state.rehome_onto_visible_workspace();
+        assert_eq!(state.selected, 1);
+        assert_eq!(state.active, Some(1));
     }
 
     fn mark_linked_worktree(state: &mut AppState, ws_idx: usize) {

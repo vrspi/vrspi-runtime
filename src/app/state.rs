@@ -1101,16 +1101,19 @@ pub(crate) struct LobbyThreadEntry {
 pub(crate) enum RoomTab {
     #[default]
     Conversation,
+    Tasks,
     Members,
     Memory,
 }
 
 impl RoomTab {
-    pub(crate) const ALL: [RoomTab; 3] = [Self::Conversation, Self::Members, Self::Memory];
+    pub(crate) const ALL: [RoomTab; 4] =
+        [Self::Conversation, Self::Tasks, Self::Members, Self::Memory];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Conversation => "conversation",
+            Self::Tasks => "tasks",
             Self::Members => "members",
             Self::Memory => "memory",
         }
@@ -1118,7 +1121,8 @@ impl RoomTab {
 
     pub(crate) fn next(self) -> Self {
         match self {
-            Self::Conversation => Self::Members,
+            Self::Conversation => Self::Tasks,
+            Self::Tasks => Self::Members,
             Self::Members => Self::Memory,
             Self::Memory => Self::Conversation,
         }
@@ -1206,6 +1210,26 @@ pub(crate) struct RoomRecordRow {
     pub accepted: bool,
 }
 
+/// One task as the browser shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RoomTaskRow {
+    pub task_id: String,
+    pub title: String,
+    /// `@handle` of the seat answerable for it, resolved when the snapshot is
+    /// taken so the row does not have to look a seat up during render.
+    pub owner: String,
+    /// Protocol state, lowercased for display.
+    pub state: String,
+    /// Whether a verdict stands. Submitted is not verified, and the row must
+    /// not let those look alike.
+    pub verified: bool,
+    /// Open blockers, if any.
+    pub blocked_reason: Option<String>,
+    /// Tasks that must be verified first, still outstanding.
+    pub waiting_on: usize,
+    pub attempts: u32,
+}
+
 /// Snapshot of one room for display, taken outside render.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct RoomSnapshot {
@@ -1217,6 +1241,7 @@ pub(crate) struct RoomSnapshot {
     pub members: Vec<RoomMemberRow>,
     pub events: Vec<RoomEventRow>,
     pub records: Vec<RoomRecordRow>,
+    pub tasks: Vec<RoomTaskRow>,
 }
 
 /// A room's right-click menu inside the browser.
@@ -1792,6 +1817,8 @@ pub enum ContextMenuKind {
 /// Workspace context-menu label that opens the room creator for that
 /// workspace. Shared with the input layer, which matches on it.
 pub(crate) const NEW_COMPANY_ROOM_ITEM: &str = "New company room...";
+/// Hides the workspace from every list without touching what it runs.
+pub(crate) const HIDE_WORKSPACE_ITEM: &str = "Hide from lists";
 
 /// Whether agent lobbies appear in the menu and sidebar.
 ///
@@ -1812,45 +1839,66 @@ pub struct ContextMenuState {
     pub x: u16,
     pub y: u16,
     pub list: MenuListState,
+    /// Whether hiding this workspace is possible right now.
+    ///
+    /// Hiding the only visible workspace is refused, and an item that silently
+    /// does nothing reads as a broken feature, so the menu does not offer it.
+    /// Decided where the menu is opened, because `items` cannot see the
+    /// workspace list.
+    pub hide_available: bool,
 }
 
 impl ContextMenuState {
+    /// Inserts the hide item after the room item, when hiding is possible.
+    fn with_hide(&self, mut items: Vec<&'static str>) -> Vec<&'static str> {
+        if self.hide_available {
+            let at = items
+                .iter()
+                .position(|item| *item == NEW_COMPANY_ROOM_ITEM)
+                .map_or(items.len(), |index| index + 1);
+            items.insert(at, HIDE_WORKSPACE_ITEM);
+        }
+        items
+    }
+
     pub fn items(&self) -> Vec<&'static str> {
         match self.kind {
-            ContextMenuKind::Workspace { .. } => vec!["Rename", NEW_COMPANY_ROOM_ITEM, "Close"],
+            ContextMenuKind::Workspace { .. } => {
+                self.with_hide(vec!["Rename", NEW_COMPANY_ROOM_ITEM, "Close"])
+            }
             ContextMenuKind::GitWorkspace {
                 is_linked_worktree: false,
                 has_worktree_children: false,
                 ..
-            } => vec![
+            } => self.with_hide(vec![
                 "Rename",
                 NEW_COMPANY_ROOM_ITEM,
                 "Close",
                 "New worktree",
                 "Open worktree...",
-            ],
+            ]),
             ContextMenuKind::GitWorkspace {
                 is_linked_worktree: true,
                 ..
-            } => vec![
+            } => self.with_hide(vec![
                 "Rename",
                 NEW_COMPANY_ROOM_ITEM,
                 "Close",
                 "Delete worktree checkout...",
-            ],
+            ]),
             ContextMenuKind::GitWorkspace {
                 is_linked_worktree: false,
                 has_worktree_children: true,
                 collapsed,
                 ..
-            } => vec![
+            } => self.with_hide(vec![
                 "Rename",
                 NEW_COMPANY_ROOM_ITEM,
                 "Close group",
                 "New worktree",
                 "Open worktree...",
                 if collapsed { "Expand" } else { "Collapse" },
-            ],
+            ]),
             ContextMenuKind::Tab { .. } => vec!["New tab", "Rename", "Close"],
             ContextMenuKind::Pane {
                 source_pane_id,
@@ -2031,6 +2079,17 @@ pub struct AppState {
     /// Workspaces whose agents are folded away in the sidebar's grouped
     /// agent list. Presentation only; nothing about the agents changes.
     pub collapsed_agent_groups: std::collections::HashSet<String>,
+    /// Workspaces the operator has hidden from every list, keyed by the
+    /// stable `Workspace.id`.
+    ///
+    /// Hiding is a display preference, not a lifecycle change: the workspace
+    /// keeps its panes, agents, terminal parsing, deliveries and background
+    /// work, and can finish what it was doing while out of sight. Keyed by id
+    /// rather than index so reordering workspaces cannot hide the wrong one.
+    /// Distinct from `collapsed_space_keys` (worktree groups) and
+    /// `collapsed_agent_groups` (agent-row folding), which both fold rows the
+    /// operator can still see the head of.
+    pub hidden_workspace_ids: std::collections::HashSet<String>,
     pub request_complete_onboarding: bool,
     pub name_input: String,
     pub name_input_replace_on_type: bool,
@@ -2430,6 +2489,7 @@ impl AppState {
             worktree_directory: std::path::PathBuf::from("/tmp/herdr-worktrees"),
             collapsed_space_keys: std::collections::HashSet::new(),
             collapsed_agent_groups: std::collections::HashSet::new(),
+            hidden_workspace_ids: std::collections::HashSet::new(),
             request_complete_onboarding: false,
             name_input: String::new(),
             name_input_replace_on_type: false,
@@ -2702,6 +2762,30 @@ impl AppState {
             active,
             self.workspaces.len()
         );
+
+        // Hiding is presentation only, but pointing the operator at a row that
+        // is not drawn is not. While anything is visible, both pointers rest
+        // on something the operator can actually see and click.
+        let any_visible = self
+            .workspaces
+            .iter()
+            .any(|workspace| !self.hidden_workspace_ids.contains(&workspace.id));
+        if any_visible {
+            assert!(
+                !self
+                    .hidden_workspace_ids
+                    .contains(&self.workspaces[self.selected].id),
+                "selected workspace {} is hidden while {} visible workspaces exist",
+                self.selected,
+                self.workspaces.len() - self.hidden_workspace_ids.len()
+            );
+            assert!(
+                !self
+                    .hidden_workspace_ids
+                    .contains(&self.workspaces[active].id),
+                "active workspace {active} is hidden while other workspaces are visible"
+            );
+        }
 
         let mut workspace_ids = std::collections::HashSet::new();
         let mut workspace_id_to_idx = std::collections::HashMap::new();
@@ -3208,6 +3292,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: true,
         };
 
         assert_eq!(
@@ -3215,10 +3300,31 @@ mod tests {
             &[
                 "Rename",
                 NEW_COMPANY_ROOM_ITEM,
+                HIDE_WORKSPACE_ITEM,
                 "Close",
                 "Delete worktree checkout..."
             ]
         );
+    }
+
+    #[test]
+    fn the_menu_withholds_hiding_when_it_would_be_refused() {
+        // Regression: with a single workspace the menu offered "Hide from
+        // lists", hiding was correctly refused, and because the refusal is
+        // silent the feature looked broken.
+        let offered = |hide_available| {
+            ContextMenuState {
+                kind: ContextMenuKind::Workspace { ws_idx: 0 },
+                x: 0,
+                y: 0,
+                list: MenuListState::new(0),
+                hide_available,
+            }
+            .items()
+            .contains(&HIDE_WORKSPACE_ITEM)
+        };
+        assert!(!offered(false), "an action that cannot work is not offered");
+        assert!(offered(true));
     }
 
     #[test]
@@ -3233,6 +3339,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: true,
         };
 
         assert_eq!(
@@ -3240,6 +3347,7 @@ mod tests {
             &[
                 "Rename",
                 NEW_COMPANY_ROOM_ITEM,
+                HIDE_WORKSPACE_ITEM,
                 "Close",
                 "New worktree",
                 "Open worktree..."
@@ -3259,6 +3367,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            hide_available: true,
         };
 
         assert_eq!(
@@ -3266,6 +3375,7 @@ mod tests {
             &[
                 "Rename",
                 NEW_COMPANY_ROOM_ITEM,
+                HIDE_WORKSPACE_ITEM,
                 "Close group",
                 "New worktree",
                 "Open worktree...",
