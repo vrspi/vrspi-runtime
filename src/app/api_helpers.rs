@@ -57,6 +57,28 @@ pub(super) fn encode_api_submission_parts(
     (text, runtime.encode_terminal_key(enter.into()))
 }
 
+/// Gap between typing a prompt into an agent and pressing Enter.
+///
+/// Agent TUIs tell a paste from typing by timing: an Enter that arrives in
+/// the same read as the text is taken as part of the paste and inserted as a
+/// newline, leaving the prompt sitting unsubmitted. ConPTY on Windows
+/// delivers a single write as one input batch, so it always lands that way.
+pub(super) const AGENT_PROMPT_SUBMIT_DELAY: std::time::Duration =
+    std::time::Duration::from_millis(300);
+
+/// Types `text` into an agent pane now and presses Enter after
+/// [`AGENT_PROMPT_SUBMIT_DELAY`], so the agent submits it instead of holding
+/// it as a pasted draft.
+pub(super) fn send_agent_prompt(
+    runtime: &crate::terminal::TerminalRuntime,
+    text: &str,
+) -> Result<(), tokio::sync::mpsc::error::TrySendError<bytes::Bytes>> {
+    let (text, enter) = encode_api_submission_parts(runtime, text);
+    runtime.try_send_bytes(bytes::Bytes::from(text))?;
+    runtime.send_bytes_after(bytes::Bytes::from(enter), AGENT_PROMPT_SUBMIT_DELAY);
+    Ok(())
+}
+
 pub(super) fn encode_api_submission(
     runtime: &crate::terminal::TerminalRuntime,
     text: &str,

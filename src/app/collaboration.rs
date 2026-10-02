@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use serde::Serialize;
 
 use super::App;
@@ -435,7 +434,6 @@ impl App {
                 tracing::warn!(message_id = %message.message_id, "collaboration message had no deliverable body");
                 continue;
             };
-            let bytes = super::api_helpers::encode_api_submission(runtime, &envelope);
             let terminal_generation = runtime.child_pid().unwrap_or(0);
             if let Err(err) = self.state.collaboration.claim_delivery(
                 &message.message_id,
@@ -466,7 +464,7 @@ impl App {
                 let _ = self.persist_session_barrier();
                 continue;
             }
-            if let Err(err) = runtime.try_send_bytes(Bytes::from(bytes)) {
+            if let Err(err) = super::api_helpers::send_agent_prompt(runtime, &envelope) {
                 tracing::debug!(message_id = %message.message_id, error = %err, "collaboration delivery deferred");
                 self.state
                     .collaboration
@@ -616,6 +614,8 @@ fn current_unix_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use super::*;
     use crate::api::schema::{AgentMessageState, AgentStatus};
 
@@ -662,7 +662,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatcher_enqueues_one_atomic_submission_and_does_not_repeat() {
+    async fn dispatcher_enqueues_one_submission_and_does_not_repeat() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &crate::config::Config::default(),
@@ -717,7 +717,7 @@ mod tests {
         let text = String::from_utf8(bytes.to_vec()).expect("utf8 submission");
         assert!(text.contains("managed Vrspi runtime"));
         assert!(text.contains("review this"));
-        assert!(text.ends_with('\r'));
+        assert!(!text.ends_with('\r'));
         assert_eq!(
             app.state
                 .collaboration
@@ -728,6 +728,13 @@ mod tests {
         );
         assert!(!app.dispatch_collaboration_messages());
         assert!(input_rx.try_recv().is_err());
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), input_rx.recv())
+                .await
+                .expect("delayed enter")
+                .expect("enter"),
+            Bytes::from_static(b"\r")
+        );
     }
 
     /// Two idle agents in one workspace, with a real runtime behind the
@@ -810,8 +817,15 @@ mod tests {
         let text = String::from_utf8(bytes.to_vec()).expect("utf8 submission");
         assert!(text.contains("review the parser boundary"));
         assert!(text.contains("managed Vrspi runtime"));
-        assert!(text.ends_with('\r'));
+        assert!(!text.ends_with('\r'));
         assert!(input_rx.try_recv().is_err());
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), input_rx.recv())
+                .await
+                .expect("delayed enter")
+                .expect("enter"),
+            Bytes::from_static(b"\r")
+        );
     }
 
     #[tokio::test]

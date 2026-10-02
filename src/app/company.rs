@@ -6,8 +6,6 @@
 //! pass, and every activation is charged against the objective's allowance
 //! before any terminal input is queued.
 
-use bytes::Bytes;
-
 use crate::company::{activation_packet, deliveries_per_member, Actor, RoomEvent};
 
 use super::App;
@@ -146,8 +144,7 @@ impl App {
                 })
                 .collect();
             let packet = activation_packet(&charter, room_id, &labelled);
-            let bytes = super::api_helpers::encode_api_submission(runtime, &packet);
-            if let Err(err) = runtime.try_send_bytes(Bytes::from(bytes)) {
+            if let Err(err) = super::api_helpers::send_agent_prompt(runtime, &packet) {
                 for (event, _, _) in &labelled {
                     let _ = self.state.company.release_delivery_claim(
                         room_id,
@@ -451,6 +448,17 @@ mod tests {
         assert!(text.contains("overview the project"));
         assert!(text.contains("untrusted"));
         assert!(text.contains("Product team"));
+        // Enter follows separately: in the same write the agent takes it as
+        // part of the paste and the activation sits unsubmitted.
+        assert!(!text.ends_with('\r'));
+        assert!(codex_rx.try_recv().is_err());
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), codex_rx.recv())
+                .await
+                .expect("delayed enter")
+                .expect("enter"),
+            bytes::Bytes::from_static(b"\r")
+        );
         // The other member can read the room later but must not be prompted.
         assert!(reviewer_rx.try_recv().is_err());
     }

@@ -1121,7 +1121,7 @@ impl Default for UiConfig {
             pane_scrollbars: true,
             pane_gaps: false,
             show_agent_labels_on_pane_borders: true,
-            hide_tab_bar_when_single_tab: true,
+            hide_tab_bar_when_single_tab: false,
             tab_bar_position: TabBarPositionConfig::Top,
             tab_bar_right: Vec::new(),
             tab_bar_right_separator: " ".into(),
@@ -1398,7 +1398,7 @@ status_indicators = "symbols"
         assert!(default_config.ui.pane_scrollbars);
         assert!(!default_config.ui.pane_gaps);
         assert!(default_config.ui.show_agent_labels_on_pane_borders);
-        assert!(default_config.ui.hide_tab_bar_when_single_tab);
+        assert!(!default_config.ui.hide_tab_bar_when_single_tab);
         assert_eq!(
             default_config.ui.tab_bar_position,
             TabBarPositionConfig::Top

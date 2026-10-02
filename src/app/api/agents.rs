@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use bytes::Bytes;
 
 use crate::api::schema::{
@@ -9,8 +7,6 @@ use crate::api::schema::{
 use crate::app::App;
 
 use super::responses::{encode_error, encode_error_body, encode_success};
-
-const AGENT_PROMPT_SUBMIT_DELAY: Duration = Duration::from_millis(300);
 
 impl App {
     pub(super) fn handle_agent_list(&mut self, id: String) -> String {
@@ -118,12 +114,9 @@ impl App {
                 return encode_error(id, "agent_prompt_failed", err.to_string());
             }
         }
-        let (text, enter) =
-            crate::app::api_helpers::encode_api_submission_parts(runtime, &params.text);
-        if let Err(err) = runtime.try_send_bytes(Bytes::from(text)) {
+        if let Err(err) = crate::app::api_helpers::send_agent_prompt(runtime, &params.text) {
             return encode_error(id, "agent_prompt_failed", err.to_string());
         }
-        runtime.send_bytes_after(Bytes::from(enter), AGENT_PROMPT_SUBMIT_DELAY);
         let Some(agent) = self.agent_info(resolved.ws_idx, resolved.pane_id) else {
             return agent_not_found(id, &params.target);
         };
@@ -306,7 +299,10 @@ fn agent_not_found(id: String, target: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+    use crate::app::api_helpers::AGENT_PROMPT_SUBMIT_DELAY;
     use crate::{
         api::schema::{AgentStatus, SuccessResponse},
         app::Mode,
