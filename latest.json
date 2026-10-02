@@ -1,0 +1,19 @@
+{
+  "version": "0.9.4",
+  "protocol": 21,
+  "notes": "### Fixed\n- A room message that mentioned an agent, and agent-to-agent mail, arrived in\n  the agent's input as a pasted draft and waited for someone to press Enter.\n  The prompt and its Enter were sent in one write, which agents read as a\n  single paste. Enter now follows the text separately, as `vrspi agent prompt`\n  already did, so the agent submits it. This failed every time on Windows.\n- The tab bar is visible again on a fresh install. Vrspi had changed the\n  default of `ui.hide_tab_bar_when_single_tab` to `true`, so a workspace with\n  one tab showed no tabs at all. Set it to `true` to keep the old behaviour.\n\n### Changed\n- Agent integrations install as `vrspi-agent-state.*`. Reinstalling them\n  removes the Herdr-era `herdr-agent-state.*` files and their registrations,\n  which otherwise kept firing and reported each pane twice.\n\n",
+  "assets": {
+    "linux-x86_64": "https://github.com/vrspi/vrspi-runtime/releases/download/v0.9.4/vrspi-linux-x86_64",
+    "linux-aarch64": "https://github.com/vrspi/vrspi-runtime/releases/download/v0.9.4/vrspi-linux-aarch64",
+    "macos-x86_64": "https://github.com/vrspi/vrspi-runtime/releases/download/v0.9.4/vrspi-macos-x86_64",
+    "macos-aarch64": "https://github.com/vrspi/vrspi-runtime/releases/download/v0.9.4/vrspi-macos-aarch64",
+    "windows-x86_64": "https://github.com/vrspi/vrspi-runtime/releases/download/v0.9.4/vrspi-windows-x86_64.zip"
+  },
+  "sha256": {
+    "linux-x86_64": "f1a9c3c4c5ed0ac1c2fb513f9051b70dda068b931993c590c0021b18c2497c76",
+    "linux-aarch64": "89d8b9817ff292658dac2495019eb1b6c47b12d5e497760dfedcf623f8be073b",
+    "macos-x86_64": "6be755238a3755eac5f4529cb63f7abdffb62aec726575cc6e1c1346b5a4be56",
+    "macos-aarch64": "4be45bc70ea76d4df770a694d626ea30f9f55af8f91b76b40482a6df91aaba3e",
+    "windows-x86_64": "98081baa4f6b1ba63aac6c7c9815975b7d57263918d2cffbd18b30b6748f8129"
+  }
+}
