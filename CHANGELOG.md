@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+## [0.9.0] - 2026-10-02
+
+The first Vrspi release. Vrspi Runtime is a fork of
+[Herdr](https://github.com/herdrdev/herdr) and continues from its 0.8.2, so
+everything Herdr does at that version, Vrspi does. The version starts at 0.9.0
+rather than 0.1.0 so an update from any earlier local build moves forward.
+
+Install on macOS or Linux, x86_64 or arm64:
+
+```sh
+curl -fsSL https://vrspi.github.io/vrspi-runtime/install.sh | sh
+```
+
+The installer verifies the published SHA-256 digest before putting anything on
+your PATH. Update later with `vrspi update`.
+
+### Added
+- Company rooms: a room has durable seats held by agents, `@handle` mentions
+  wake only the seats addressed, and seats outlive the processes that fill
+  them, so an agent can be replaced without losing the mail owed to its seat.
+  Each objective carries an activation budget, because a room where every
+  agent answers every agent costs N squared activations per exchange.
+- A task protocol: tasks with a single answerable owner, leases, dependencies
+  and artifact versions, committed to a durable journal before the server
+  answers. Submitted is deliberately not verified: one is a worker's claim,
+  the other a checked verdict against evidence. Every command states the
+  revision it read, and a stale one is refused rather than applied.
+- A Tasks view in the room browser, plus `vrspi room task` commands and seven
+  `room.task.*` API methods.
+- Room memory: durable findings agents publish for each other, with revision
+  checks, so one agent's investigation is not repeated by the next.
+- Workspace hiding: hide a workspace and its agent rows from every list while
+  it keeps running, parsing and delivering. A count on the sidebar header
+  brings it back.
+- Vrspi's own install and update channel: `vrspi update` and a `curl | sh`
+  installer that both read one published manifest, so an install and an
+  update can never disagree about the latest release.
+
+### Known issues
+- No Windows build. The Windows asset needs an app-local ConPTY runtime and
+  nothing in this fork has been built or run on Windows yet; an untested
+  binary seemed worse than none.
+- Hidden workspaces are restored all at once; there is no picker for choosing
+  one of several.
+- Three integration tests fail on macOS because the test harness assumes GNU
+  `sh` and `date`. They do not affect the shipped binary.
+
 ## [0.8.2] - 2026-08-19
 
 ### Added
