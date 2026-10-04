@@ -27,6 +27,25 @@ console version Windows happens to ship.
 
 Both verify the published SHA-256 digest before putting anything on your PATH.
 
+## Sign in
+
+Vrspi needs a free [vrspi.com account](https://vrspi.com/signup). The first
+time you start it, it opens your browser on a sign-in link; approve it there
+and the terminal carries on. Over SSH or without a browser, open the printed
+link on any device and enter the code.
+
+```sh
+vrspi login     # sign in (or switch accounts)
+vrspi account   # who is signed in
+vrspi logout    # sign out and end the session
+```
+
+Once signed in, Vrspi reconfirms the account online every 12 hours and keeps
+starting offline for up to 14 days. Commands your agents run inside panes never
+ask for sign-in.
+
+## Update
+
 Update in place:
 
 ```sh

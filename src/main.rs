@@ -55,6 +55,7 @@ fn set_host_color_scheme_reports(enabled: bool) -> io::Result<()> {
     io::stdout().flush()
 }
 
+mod account;
 mod agent_resume;
 mod api;
 mod app;
@@ -576,6 +577,10 @@ fn main() -> io::Result<()> {
         std::process::exit(2);
     }
 
+    if let Some(code) = account::run_command(&args) {
+        std::process::exit(code);
+    }
+
     match cli::maybe_run(&args) {
         Ok(cli::CommandOutcome::Handled(code)) => std::process::exit(code),
         Ok(cli::CommandOutcome::NotCli) => {}
@@ -648,6 +653,7 @@ fn main() -> io::Result<()> {
         );
         println!("       {} session attach <name>", EXECUTABLE_NAME);
         println!("       {} completion zsh", EXECUTABLE_NAME);
+        println!("       {} login | logout | account", EXECUTABLE_NAME);
         println!("       {} update [--handoff]", EXECUTABLE_NAME);
         println!("       {} channel set <stable|preview>", EXECUTABLE_NAME);
         println!("       {} server stop", EXECUTABLE_NAME);
@@ -670,6 +676,14 @@ fn main() -> io::Result<()> {
             (
                 EXECUTABLE_NAME.to_string(),
                 "Launch or attach to the persistent session",
+            ),
+            (
+                format!("{EXECUTABLE_NAME} login"),
+                "Sign in with your vrspi.com account (opens your browser)",
+            ),
+            (
+                format!("{EXECUTABLE_NAME} account"),
+                "Show who is signed in; `logout` signs out",
             ),
             (
                 format!("{EXECUTABLE_NAME} status [server|client]"),
@@ -767,7 +781,7 @@ fn main() -> io::Result<()> {
         println!(
             "Env:    VRSPI_CONFIG_PATH overrides config file path (HERDR_CONFIG_PATH also works)"
         );
-        println!("Home:   https://herdr.dev");
+        println!("Home:   https://vrspi.com");
         println!();
         println!("{}", cli::AGENT_HELP_FOOTER);
         return Ok(());
@@ -833,6 +847,11 @@ fn main() -> io::Result<()> {
             std::process::exit(2);
         }
     }
+
+    // Every way of starting Vrspi passes here; the internal server, client,
+    // and bridge modes above are spawned by an already signed-in launch, and
+    // the commands agents run inside panes go through `cli::maybe_run`.
+    account::require_sign_in();
 
     if let Some(remote_launch) = remote_launch {
         let remote_target = remote_launch.target.clone();
