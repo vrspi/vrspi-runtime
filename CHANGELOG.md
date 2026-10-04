@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.9.6] - 2026-10-04
+
+### Added
+- Vrspi needs a free vrspi.com account. The first start, or `vrspi login`,
+  opens your browser on a sign-in link with the code already filled in;
+  approve it and the terminal continues. Over SSH or without a browser, open
+  the printed link anywhere and enter the code. `vrspi account` shows who is
+  signed in and `vrspi logout` signs out and ends the session on the server.
+- A sign-in is reconfirmed online every 12 hours. Without a connection, Vrspi
+  keeps starting for 14 days after the last confirmation. A deleted or
+  signed-out account is refused at the next confirmation. Commands that agents
+  run inside panes never ask for sign-in.
+
 ## [0.9.5] - 2026-10-04
 
 ### Changed
