@@ -222,57 +222,107 @@ jobs:
             vrspi-windows-x86_64.zip/vrspi-windows-x86_64.zip
           body_path: RELEASE_NOTES.md
 
-  # Publishes the manifest that `vrspi update` and install.sh both read.
+  # Publishes the release on vrspi.com, where `vrspi update` and both
+  # installers read it, so the source repository can be private.
   #
-  # Deliberately small: everything is derived from the release that was just
-  # created, so there is no second source of truth to drift. Upstream's
-  # equivalent job also published versioned docs and a Cloudflare site, which
-  # this fork does not have.
+  # Built from the build artifacts rather than the GitHub release, so it does
+  # not depend on the repository being public. The deploy key is pinned on the
+  # server to `rrsync -wo -no-del` inside the runtime directory: it can add and
+  # replace files there and nothing else.
   publish-manifest:
-    needs: release
+    needs: [build, validate-release-inputs]
     if: github.repository == 'vrspi/vrspi-runtime'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      DEPLOY_HOST: 194.163.130.197
+      DEPLOY_USER: kheiro
+      PUBLIC_BASE: https://vrspi.com/runtime
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Build the manifest from the published release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download all artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Stage the release and build the manifest
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          WORK="$RUNNER_TEMP/manifest"
-          mkdir -p "$WORK/assets"
-          gh release download "$GITHUB_REF_NAME" --dir "$WORK/assets" --clobber
-          gh release view "$GITHUB_REF_NAME" --json body --jq .body > "$WORK/notes.md"
+          SITE="$RUNNER_TEMP/site"
+          RELEASE_DIR="$SITE/releases/v$VERSION"
+          mkdir -p "$RELEASE_DIR"
+          # Each artifact is a directory named after the one file it holds.
+          for dir in "$RUNNER_TEMP"/artifacts/*/; do
+            cp "$dir"* "$RELEASE_DIR/"
+          done
+          python3 scripts/changelog.py extract --version "$VERSION" --output "$RUNNER_TEMP/notes.md"
           python3 scripts/build_release_manifest.py \
             --version "$VERSION" \
-            --assets "$WORK/assets" \
-            --repo "$GITHUB_REPOSITORY" \
-            --notes "$WORK/notes.md" \
-            --output "$WORK/latest.json"
+            --assets "$RELEASE_DIR" \
+            --base-url "$PUBLIC_BASE/releases" \
+            --notes "$RUNNER_TEMP/notes.md" \
+            --output "$SITE/latest.json"
+          cp website/install.sh website/install.ps1 "$SITE/"
+          cp website/landing.html "$SITE/index.html"
+          ls -lR "$SITE"
 
-      - name: Publish the manifest and installer
+      - name: Upload to vrspi.com
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.VRSPI_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.VRSPI_DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          WORK="$RUNNER_TEMP/manifest"
-          cp website/install.sh "$WORK/install.sh"
-          cp website/install.ps1 "$WORK/install.ps1"
-          cp website/landing.html "$WORK/index.html"
+          SITE="$RUNNER_TEMP/site"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          SSH="ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          # Binaries first, manifest last: a client must never read a
+          # manifest that names a file which has not finished uploading.
+          # rsync renames each file into place, so a reader sees either the
+          # old manifest or the new one, never a partial write.
+          rsync -rt --chmod=D755,F644 -e "$SSH" "$SITE/releases/" "$DEPLOY_USER@$DEPLOY_HOST:releases/"
+          rsync -t --chmod=F644 -e "$SSH" \
+            "$SITE/install.sh" "$SITE/install.ps1" "$SITE/index.html" \
+            "$DEPLOY_USER@$DEPLOY_HOST:./"
+          rsync -t --chmod=F644 -e "$SSH" "$SITE/latest.json" "$DEPLOY_USER@$DEPLOY_HOST:./"
+          rm -f ~/.ssh/deploy_key
+
+      - name: Verify what vrspi.com now serves
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          curl -fsSL "$PUBLIC_BASE/latest.json?run=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/served.json"
+          python3 - "$RUNNER_TEMP/served.json" "$VERSION" <<'PY'
+          import hashlib, json, sys, urllib.request
+          manifest = json.load(open(sys.argv[1]))
+          assert manifest["version"] == sys.argv[2], f"served {manifest['version']}, expected {sys.argv[2]}"
+          for key, url in manifest["assets"].items():
+              data = urllib.request.urlopen(url).read()
+              digest = hashlib.sha256(data).hexdigest()
+              assert digest == manifest["sha256"][key], f"{key}: served digest {digest} does not match the manifest"
+              print(f"{key}: {len(data)} bytes, digest ok")
+          PY
+
+      # Clients up to 0.9.4 read the manifest from GitHub Pages. Publishing the
+      # same manifest there moves them to a build that reads vrspi.com. Pages
+      # stops serving once the repository is private, after which this only
+      # updates an unserved branch.
+      - name: Publish the same manifest on GitHub Pages
+        run: |
+          set -euo pipefail
+          SITE="$RUNNER_TEMP/site"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # An orphan branch holding only what is served, so the published site
-          # cannot drift with the source tree.
           git checkout --orphan gh-pages-build
           git rm -rq --cached .
           find . -maxdepth 1 ! -name . ! -name .git -exec rm -rf {} +
-          cp "$WORK/latest.json" latest.json
-          cp "$WORK/install.sh" install.sh
-          cp "$WORK/install.ps1" install.ps1
-          cp "$WORK/index.html" index.html
+          cp "$SITE/latest.json" "$SITE/install.sh" "$SITE/install.ps1" "$SITE/index.html" .
           chmod +x install.sh
           touch .nojekyll
           git add -A latest.json install.sh install.ps1 index.html .nojekyll

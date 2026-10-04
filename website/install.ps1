@@ -734,9 +734,9 @@ if ($useLocalPackage) {
 
     if ([string]::IsNullOrWhiteSpace($ManifestUrl)) {
         $ManifestUrl = if ($Channel -eq "preview") {
-            "https://vrspi.github.io/vrspi-runtime/latest.json"
+            "https://vrspi.com/runtime/latest.json"
         } else {
-            "https://vrspi.github.io/vrspi-runtime/latest.json"
+            "https://vrspi.com/runtime/latest.json"
         }
     }
 
@@ -757,7 +757,7 @@ if ($useLocalPackage) {
     # Windows asset is a real "no build for your platform" rather than a reason
     # to fetch a URL that does not exist.
     if ($null -eq $assetProperty) {
-        Write-Error "This release has no Windows build. See https://github.com/vrspi/vrspi-runtime/releases"
+        Write-Error "This release has no Windows build. See https://vrspi.com/runtime/"
         exit 1
     }
     $asset = Get-ManifestAsset -Manifest $manifest -Target $target

@@ -2,7 +2,7 @@
 set -eu
 
 BIN="vrspi"
-MANIFEST_URL="https://vrspi.github.io/vrspi-runtime/latest.json"
+MANIFEST_URL="https://vrspi.com/runtime/latest.json"
 INSTALL_DIR="${VRSPI_INSTALL_DIR:-${HERDR_INSTALL_DIR:-$HOME/.local/bin}}"
 
 main() {
@@ -139,7 +139,7 @@ err()  { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
 need() {
     if ! command -v "$1" >/dev/null 2>&1; then
-        err "requires '$1' — install it first, or download a binary manually from https://github.com/vrspi/vrspi-runtime/releases"
+        err "requires '$1' — install it first, or download a binary manually from https://vrspi.com/runtime/"
     fi
 }
 

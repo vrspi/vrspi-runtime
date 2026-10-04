@@ -27,10 +27,10 @@ pub(crate) const PRODUCT_ANNOUNCEMENTS_ENABLED: bool = false;
 /// Where `vrspi update` and the installer look for the published release.
 ///
 /// Both read the same manifest on purpose, so an install and an update can
-/// never disagree about what the latest release is. Hosted on GitHub Pages
-/// rather than on vrspi.com: if the manifest is unreachable nobody can install
-/// *or* update, and Pages has no single VPS behind it.
-pub(crate) const UPDATE_MANIFEST_URL: &str = "https://vrspi.github.io/vrspi-runtime/latest.json";
+/// never disagree about what the latest release is. Hosted on vrspi.com so the
+/// source repository can be private. The cost is one VPS behind it: if
+/// vrspi.com is down, nobody can install *or* update until it is back.
+pub(crate) const UPDATE_MANIFEST_URL: &str = "https://vrspi.com/runtime/latest.json";
 
 /// Returns a branded environment override, falling back to its Herdr-era
 /// spelling so existing sessions, integrations, and automation keep working.

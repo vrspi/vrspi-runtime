@@ -38,10 +38,10 @@ def protocol_version(source: pathlib.Path) -> int:
     return int(match.group(1))
 
 
-def build(version: str, protocol: int, assets_dir: pathlib.Path, repo: str, notes: str) -> dict:
+def build(version: str, protocol: int, assets_dir: pathlib.Path, base_url: str, notes: str) -> dict:
     assets: dict[str, str] = {}
     digests: dict[str, str] = {}
-    base = f"https://github.com/{repo}/releases/download/v{version}"
+    base = f"{base_url.rstrip('/')}/v{version}"
     for key, name in PLATFORMS.items():
         path = assets_dir / name
         if not path.exists():
@@ -66,7 +66,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True, help="release version, without a v prefix")
     parser.add_argument("--assets", required=True, type=pathlib.Path, help="directory of downloaded release assets")
-    parser.add_argument("--repo", required=True, help="owner/name the assets are published under")
+    parser.add_argument(
+        "--base-url",
+        required=True,
+        help="URL the versioned asset directories are served under, e.g. https://vrspi.com/runtime/releases",
+    )
     parser.add_argument("--notes", type=pathlib.Path, help="file holding the release notes")
     parser.add_argument("--wire", type=pathlib.Path, default=pathlib.Path("src/protocol/wire.rs"))
     parser.add_argument("--output", required=True, type=pathlib.Path)
@@ -76,7 +80,7 @@ def main() -> int:
         raise SystemExit(f"version must look like 0.9.0, got {args.version!r}")
 
     notes = args.notes.read_text(encoding="utf-8") if args.notes and args.notes.exists() else ""
-    manifest = build(args.version, protocol_version(args.wire), args.assets, args.repo, notes)
+    manifest = build(args.version, protocol_version(args.wire), args.assets, args.base_url, notes)
     args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {args.output} listing {len(manifest['assets'])} platform(s) for v{args.version}")
     return 0

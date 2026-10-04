@@ -10,7 +10,7 @@ A fork of [Herdr](https://github.com/herdrdev/herdr). See [NOTICE](NOTICE).
 **macOS and Linux** (x86_64 and arm64):
 
 ```sh
-curl -fsSL https://vrspi.github.io/vrspi-runtime/install.sh | sh
+curl -fsSL https://vrspi.com/runtime/install.sh | sh
 ```
 
 Installs the `vrspi` binary to `~/.local/bin` (override with
@@ -19,7 +19,7 @@ Installs the `vrspi` binary to `~/.local/bin` (override with
 **Windows** (x86_64), in PowerShell:
 
 ```powershell
-irm https://vrspi.github.io/vrspi-runtime/install.ps1 | iex
+irm https://vrspi.com/runtime/install.ps1 | iex
 ```
 
 Installs `vrspi.exe` with its own ConPTY runtime, so it does not depend on the
@@ -33,8 +33,8 @@ Update in place:
 vrspi update
 ```
 
-Prefer a browser? Grab a binary from
-[releases](https://github.com/vrspi/vrspi-runtime/releases) — but note macOS
+Prefer a browser? Each binary is linked from
+[latest.json](https://vrspi.com/runtime/latest.json) — but note macOS
 quarantines browser downloads, so the installer above is the smoother path.
 
 ---
