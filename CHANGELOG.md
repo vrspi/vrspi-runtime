@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.9.5] - 2026-10-04
+
+### Changed
+- Vrspi is now installed and updated from vrspi.com. `vrspi update` reads
+  `https://vrspi.com/runtime/latest.json`, and the install commands are
+  `curl -fsSL https://vrspi.com/runtime/install.sh | sh` and
+  `irm https://vrspi.com/runtime/install.ps1 | iex`. Run `vrspi update` once
+  on 0.9.4 to move over; after that, updates come from vrspi.com.
+
+### Fixed
+- `vrspi --remote` installed upstream Herdr on the remote machine, because it
+  read Herdr's release manifest. It now installs the matching Vrspi build.
+
 ## [0.9.4] - 2026-10-02
 
 ### Fixed
