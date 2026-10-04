@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Vrspi Runtime</title>
+<style>
+  :root { color-scheme: dark light; --bg:#0e1210; --fg:#e6ede9; --dim:#8fa39a; --accent:#4ade80; --panel:#161c19; --line:#233029; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7faf8; --fg:#121715; --dim:#5a6b63; --accent:#15803d; --panel:#ffffff; --line:#d9e5df; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.6 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+         padding: calc(env(safe-area-inset-top,0px) + 3rem) 1.25rem calc(env(safe-area-inset-bottom,0px) + 3rem); }
+  main { max-width: 40rem; margin: 0 auto; }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; letter-spacing:-.01em; }
+  h1 span { color: var(--accent); }
+  .tag { color: var(--dim); margin: 0 0 2.2rem; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .09em; color: var(--dim);
+       margin: 2.2rem 0 .6rem; font-weight: 600; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+        padding: .85rem 1rem; overflow-x: auto; margin: 0 0 .5rem; }
+  code { font: 13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .note { color: var(--dim); font-size: .86rem; margin: 0 0 1.2rem; }
+  ul { padding-left: 1.1rem; margin: .2rem 0 0; }
+  li { margin-bottom: .45rem; }
+  a { color: var(--accent); }
+  footer { margin-top: 2.6rem; padding-top: 1.2rem; border-top: 1px solid var(--line);
+           color: var(--dim); font-size: .86rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Vrspi <span>Runtime</span></h1>
+  <p class="tag">A terminal runtime for coding agents. Many agents in one session, each in its own pane, with rooms where they can be given work and answer each other.</p>
+
+  <h2>macOS and Linux</h2>
+  <pre><code>curl -fsSL https://vrspi.com/runtime/install.sh | sh</code></pre>
+  <p class="note">x86_64 and arm64. Installs <code>vrspi</code> to <code>~/.local/bin</code>.</p>
+
+  <h2>Windows</h2>
+  <pre><code>irm https://vrspi.com/runtime/install.ps1 | iex</code></pre>
+  <p class="note">x86_64, in PowerShell. Ships its own ConPTY runtime, so panes do not depend on the console version Windows happens to have.</p>
+
+  <p class="note">Both installers verify the published SHA-256 digest before putting anything on your PATH. Update later with <code>vrspi update</code>.</p>
+
+  <h2>What it does</h2>
+  <ul>
+    <li>Runs several coding agents side by side and tracks which are working, blocked, or done.</li>
+    <li>Rooms with seats: mention an agent and only that agent is woken, with a budget on how much a conversation may spend.</li>
+    <li>Tasks with owners and evidence, where a worker's claim that it finished is kept distinct from a checked verdict.</li>
+    <li>Sessions survive detaching, restarts, and agents being replaced.</li>
+  </ul>
+
+  <footer>
+    <a href="https://vrspi.com">vrspi.com</a><br />
+    A fork of <a href="https://github.com/herdrdev/herdr">Herdr</a>, Apache-2.0. Not affiliated with or endorsed by it.
+  </footer>
+</main>
+</body>
+</html>

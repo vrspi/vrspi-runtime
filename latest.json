@@ -1,0 +1,19 @@
+{
+  "version": "0.9.6",
+  "protocol": 21,
+  "notes": "### Added\n- Vrspi needs a free vrspi.com account. The first start, or `vrspi login`,\n  opens your browser on a sign-in link with the code already filled in;\n  approve it and the terminal continues. Over SSH or without a browser, open\n  the printed link anywhere and enter the code. `vrspi account` shows who is\n  signed in and `vrspi logout` signs out and ends the session on the server.\n- A sign-in is reconfirmed online every 12 hours. Without a connection, Vrspi\n  keeps starting for 14 days after the last confirmation. A deleted or\n  signed-out account is refused at the next confirmation. Commands that agents\n  run inside panes never ask for sign-in.\n",
+  "assets": {
+    "linux-x86_64": "https://vrspi.com/runtime/releases/v0.9.6/vrspi-linux-x86_64",
+    "linux-aarch64": "https://vrspi.com/runtime/releases/v0.9.6/vrspi-linux-aarch64",
+    "macos-x86_64": "https://vrspi.com/runtime/releases/v0.9.6/vrspi-macos-x86_64",
+    "macos-aarch64": "https://vrspi.com/runtime/releases/v0.9.6/vrspi-macos-aarch64",
+    "windows-x86_64": "https://vrspi.com/runtime/releases/v0.9.6/vrspi-windows-x86_64.zip"
+  },
+  "sha256": {
+    "linux-x86_64": "a4a50acb08783a792b77c84c491d4ec575b335b7e129a46ccd052b6a5cab728b",
+    "linux-aarch64": "627e37e045ed2c2bab85f693ec5a24641fa31a62f711e442f815740d7f481aa8",
+    "macos-x86_64": "674ff14b8de6234d7801414cdaf7e1f7ec82c57890d6d9dfa0006e161c2c2a08",
+    "macos-aarch64": "7ffa9b30522438290912a094bd11f5044188c934d132cf8ad9ccfef9a74aa578",
+    "windows-x86_64": "cbc21cb4cf6d23c51d60a57c632bc89b20b878b7c34fb9364a66460c48ec248f"
+  }
+}
